@@ -119,7 +119,7 @@ behavior is exercised by at least one real plugin in Stage 2.
 ---
 
 ## Stage 2 -- Okta Connector (real API, credentials available)
-**Status: mocks green** -- `pytest -m okta` 322 passed, 2026-09-15 (was 208
+**Status: mocks green** -- `pytest -m okta` 326 passed, 2026-09-15 (was 208
 on 2026-09-02; the `-g` groups section and the `--team` group-comparison view
 with `--html` export were added since). The unchecked tasks are all
 live-org confirmations blocked on a real token in `.env`: the manual smoke
@@ -145,8 +145,8 @@ reports.
 | [x] `--find` multi-token narrowing + `--all` to see past the display cap | `--find` |
 | [ ] **Verify `--find` returns DEPROVISIONED users against the real org** | a real token in `.env` |
 | [x] `-g`/`-groups`/`--groups` — a user's Okta group memberships (`/users/{id}/groups`) | plugin implemented |
-| [x] `--team` — compare group memberships across a person's team, `--html` writes a page | groups; `--find` shape |
-| [ ] **Confirm `managerId` keys direct reports on login against the real org** (see Open Decisions Log) | a real token in `.env` |
+| [x] `--team` — compare group memberships across a person's manager cohort (peers), `--html` writes a page | groups; `--find` shape |
+| [ ] **Confirm what `managerId` holds against the real org** (login/email/id — keys the cohort search; see Open Decisions Log) | a real token in `.env` |
 
 Notes from the implementation:
 
@@ -274,16 +274,21 @@ Notes from the implementation:
   this file — read them before adding a flag to another stage.
 - **`-g` lists group memberships** via `GET /api/v1/users/{userId}/groups`,
   and is the per-person building block `--team` fans out over.
-- **`--team` compares a team's group memberships.** It resolves the subject +
-  their direct reports, fetches each member's groups concurrently
-  (`asyncio.gather` — the payoff of `fetch()` being async), and lines them up
-  into a matrix flagging *drift* rows (some-but-not-all coverage). `--html
-  PATH` writes the same comparison as a self-contained page (all CSS inlined,
-  no external resources; every directory value HTML-escaped). One member's
-  failed groups call degrades that column to `?` and is excluded from the
-  drift maths rather than sinking the run; a failure building the roster is a
-  hard error. See the team-definition entry in the Open Decisions Log for the
-  two org-specific assumptions (`managerId` keying, reports-vs-peers).
+- **`--team` compares a team's group memberships.** The subject is *not*
+  assumed to be a manager: the connector reads the subject's own manager from
+  `profile.<managerAttr>` and gathers everyone who reports to that manager
+  (the subject + their peers), so looking up an IC compares them against their
+  teammates and looking up a manager compares them against their peer
+  managers. A subject with no manager on file falls back to comparing their
+  own direct reports (`cohort="reports"`). Each member's groups are fetched
+  concurrently (`asyncio.gather` — the payoff of `fetch()` being async) and
+  lined up into a matrix flagging *drift* rows (some-but-not-all coverage).
+  `--html PATH` writes the same comparison as a self-contained page (all CSS
+  inlined, no external resources; every directory value HTML-escaped). One
+  member's failed groups call degrades that column to `?` and is excluded from
+  the drift maths rather than sinking the run; a failure building the roster
+  is a hard error. The one remaining org-specific unknown is what the manager
+  attribute holds (login/email/id) — see the Open Decisions Log.
 - **`-a` lists applications** via `GET /api/v1/users/{userId}/appLinks`, the
   same list that builds the user's Okta dashboard.
   - **It answers "what can they open", not "how were they granted it".**
@@ -683,23 +688,28 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       `/apps/{appId}/users/{userId}` call per app. If offboarding needs to
       know *which group to remove someone from*, add it behind its own opt-in
       flag (same reasoning as `--last-signin`), never automatically.
-- [ ] **What "team" means, and how the manager link is keyed (Okta `--team`).**
-      `okta <user> --team` compares group memberships across the subject plus
-      their **direct reports**, resolved via
-      `GET /users?search=profile.<attr> eq "<subject-login>"`. Two assumptions
-      are baked in and neither is verifiable against the mocks:
-      (1) "team" = the subject and who reports to *them* (a manager-centric
-      read), not the subject's *peers* (same-manager) — the latter is what an
-      IC, rather than a manager, might expect. (2) The manager attribute
-      (`OKTA_MANAGER_ATTRIBUTE`, default `managerId`) is matched against the
-      subject's **login**; some orgs populate `managerId` with an employee id
-      or email instead, in which case reports come back empty and the CLI
-      shows a team of one. Both are documented and the attribute is
-      configurable, but confirm the org's Universal Directory schema in the
-      Stage 2 live smoke test before relying on the roster, and decide whether
-      a peers view (`--team --peers`?) is wanted. Group memberships come from
-      `GET /users/{id}/groups`, which is also new and exercised by the `-g`
-      section.
+- [x] ~~What "team" means (reports vs. peers) for Okta `--team`~~ **Resolved
+      2026-09-15: peers (the subject's manager cohort).** `okta <user> --team`
+      reads the subject's own manager from `profile.<managerAttr>` and compares
+      everyone who reports to that manager — the subject and their peers — so
+      the result is the same whether the queried user is a manager or an IC
+      (an IC is compared to their teammates; a manager to their peer managers).
+      A subject with no manager on file falls back to comparing their own
+      direct reports, tagged `cohort="reports"`, so a top-of-tree lookup still
+      answers something. The earlier direct-reports-only reading assumed the
+      subject was always the manager, which is wrong for the common case of
+      looking up a teammate.
+- [ ] **How the manager link is keyed (Okta `--team`).** The cohort is found
+      via `GET /users?search=profile.<attr> eq "<managerRef>"`, where
+      `<attr>` is `OKTA_MANAGER_ATTRIBUTE` (default `managerId`) and
+      `<managerRef>` is whatever that attribute holds on the subject's profile.
+      Whether `managerId` holds the manager's login, email or employee id is a
+      per-org Universal Directory decision the mocks cannot prove; if the value
+      it holds is not what other users' `managerId` is compared against, the
+      cohort comes back as just the subject. The attribute is configurable,
+      but confirm the org's schema in the Stage 2 live smoke test before
+      relying on the roster. Group memberships come from `GET /users/{id}/
+      groups`, also new and exercised by the `-g` section.
 - [ ] **Authenticators and devices are not joined.** An Okta Verify push
       factor and an Okta device registry entry can refer to the same phone,
       but the factor `profile.name` and the device `displayName` are only

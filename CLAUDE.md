@@ -200,7 +200,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   under `-m cache`. `cache.py` and `config.py` both 100%. Expiry now
   deletes rows; `lookup-cli cache clear|purge` added; DB is `0600` in a
   `0700` directory.
-- Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 322 passed.
+- Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 326 passed.
   `plugins/okta_plugin/` implements the real client. Four sections select
   via flags (bare = status), and `LOOKUP_CLI_MOCK_OKTA=1` runs any of them
   with no credentials:
@@ -211,9 +211,14 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   - `-u`/`-authenticators`/`--authenticators` — enrolled MFA factors
   - `-g`/`-groups`/`--groups` — Okta group memberships (bundles: `-sdaug`)
   - `--team` — **mode flag** (long-only, composes with nothing, like `--find`):
-    fetch the person's team (them + direct reports, matched on
-    `OKTA_MANAGER_ATTRIBUTE`, default `managerId`) and compare everyone's
-    group memberships in a matrix; `--html PATH` also writes it as a
+    compare group memberships across the queried person's team. The subject is
+    **not** assumed to be a manager — the connector reads *their* manager from
+    `profile.<OKTA_MANAGER_ATTRIBUTE>` (default `managerId`) and gathers
+    everyone who reports to that same manager (the subject + their peers), so
+    looking up an IC compares them against their teammates and looking up a
+    manager compares them against their peer managers. A subject with no
+    manager on file falls back to comparing their own direct reports (tagged
+    `cohort="reports"`). `--html PATH` also writes the matrix as a
     self-contained web page. Per-member group calls run concurrently; one
     member's failure degrades its column (`?`, excluded from drift maths)
     rather than sinking the run. ⚠️ Whether `managerId` holds a login/email/id
@@ -250,7 +255,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   is 410 Gone, unbounded JQL is refused, and the replacement returns **no
   `total`** -- so a count is only real when `complete` is true, otherwise
   the CLI says "at least N". JQL needs an accountId, never a username.
-- Whole suite: 597 tests, 98% coverage, single `pytest` run.
+- Whole suite: 601 tests, 98% coverage, single `pytest` run.
 - Stages 3-8: not started. Both contract decisions (async `fetch()`,
   injected `PluginConfig`) are resolved and implemented, so Jira (Stage 3)
   is a straight copy of the Okta shape.

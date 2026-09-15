@@ -405,21 +405,30 @@ def _html_member_head(member: dict) -> str:
     if member.get("groups") is None:
         role = "unavailable"
     elif member.get("is_subject"):
-        role = "manager"
+        role = "subject"
     else:
-        role = "report"
+        role = "teammate"
     name = member.get("name")
     name_line = f'<div class="nm">{_escape(name)}</div>' if name else ""
     return f'<div class="who">{login}</div>{name_line}<div class="role">{role}</div>'
 
 
-def render_team_html(comparison: dict, *, subject_login: str) -> str:
+def render_team_html(
+    comparison: dict,
+    *,
+    subject_login: str,
+    manager: str | None = None,
+    cohort: str | None = None,
+) -> str:
     """Render `comparison` (from `build_comparison`) as a standalone web page.
 
-    Everything from the directory -- logins, display names, group names -- is
-    HTML-escaped: it is attacker-influenceable data being written into a file
-    a human then opens in a browser. The page embeds all of its CSS and uses
-    no external resources so it works offline, straight from disk.
+    `manager` / `cohort` describe whose team this is (a peer cohort keyed on a
+    manager, or the subject's own direct reports), and are woven into the
+    subtitle so the page states what it is comparing. Everything from the
+    directory -- logins, display names, group names, the manager reference --
+    is HTML-escaped: it is attacker-influenceable data being written into a
+    file a human then opens in a browser. The page embeds all of its CSS and
+    uses no external resources so it works offline, straight from disk.
     """
     members = comparison["members"]
     rows = comparison["groups"]
@@ -465,6 +474,12 @@ def render_team_html(comparison: dict, *, subject_login: str) -> str:
         )
 
     subject = _escape(subject_login)
+    if cohort == "peers" and manager:
+        whose = f"Everyone who reports to <b>{_escape(manager)}</b> &mdash; {subject} and their teammates."
+    elif cohort == "reports":
+        whose = f"{subject} has no manager on file, so this compares their own direct reports."
+    else:
+        whose = f"{subject}'s team."
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -477,8 +492,9 @@ def render_team_html(comparison: dict, *, subject_login: str) -> str:
 <div class="wrap">
   <p class="eyebrow">lookup-cli &middot; okta &middot; team group comparison</p>
   <h1>Group comparison &mdash; team of {subject}</h1>
-  <p class="sub">Every member's Okta group memberships, lined up so gaps and
-  extra access stand out. Rows tagged <b>drift</b> are where the team diverges.</p>
+  <p class="sub">{whose} Every member's Okta group memberships are lined up so
+  gaps and extra access stand out. Rows tagged <b>drift</b> are where the team
+  diverges.</p>
   <div class="tiles">
     <div class="tile"><div class="n">{summary["member_count"]}</div><div class="l">team members</div></div>
     <div class="tile"><div class="n">{summary["group_count"]}</div><div class="l">distinct groups</div></div>
@@ -685,14 +701,22 @@ class OktaPlugin(ConnectorPlugin):
         )
 
     async def fetch_team(self, identifier: str) -> ConnectorResult:
-        """Resolve `identifier` to their team roster: the person + direct reports.
+        """Resolve `identifier` to the team they sit in, for comparison.
 
-        The subject comes from the ordinary user lookup; direct reports come
-        from `GET /users?search=profile.<managerAttr> eq "<login>"`. What
-        `<managerAttr>` (default `managerId`) actually holds is org-specific,
-        which is why the attribute is configurable and why the value matched is
-        the subject's login -- see the Open Decisions Log. Like `fetch()`,
-        never raises for ordinary failures.
+        The subject is *not* assumed to be a manager. We read the subject's
+        own manager from `profile.<managerAttr>` (default `managerId`) and
+        gather everyone who reports to that same manager --
+        `GET /users?search=profile.<managerAttr> eq "<managerRef>"` -- i.e. the
+        subject and their peers. That way looking up an IC compares them
+        against their teammates, and looking up a manager compares them against
+        *their* peer managers, consistently.
+
+        Fallback: a subject with no manager on their profile (the top of a
+        tree) has no peer cohort, so we compare their own direct reports
+        instead and tag the result `cohort="reports"` so the CLI can say which
+        it did. What `<managerAttr>` actually holds (login/email/id) is
+        org-specific -- see the Open Decisions Log. Like `fetch()`, never
+        raises for ordinary failures.
         """
         try:
             subject_raw = await self._call_backend(identifier)
@@ -700,11 +724,22 @@ class OktaPlugin(ConnectorPlugin):
                 return ConnectorResult(
                     plugin_name=self.name,
                     identifier=identifier,
-                    data={"found": False, "members": [], "count": 0},
+                    data={"found": False, "members": [], "count": 0, "cohort": None},
                     tags=["not-found"],
                 )
-            subject_login = (subject_raw.get("profile") or {}).get("login") or identifier
-            raw_reports = await self._call_reports_backend(subject_login)
+            subject_profile = subject_raw.get("profile") or {}
+            subject_login = subject_profile.get("login") or identifier
+            manager_ref = subject_profile.get(self._manager_attribute)
+            manager_ref = manager_ref.strip() if isinstance(manager_ref, str) else manager_ref
+
+            if manager_ref:
+                cohort_kind = "peers"
+                cohort_raw = await self._call_cohort_backend(manager_ref)
+            else:
+                # No manager to key on: compare the subject's own reports so the
+                # command still answers something useful for a top-of-tree user.
+                cohort_kind = "reports"
+                cohort_raw = await self._call_cohort_backend(subject_login)
         except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation
             return ConnectorResult(
                 plugin_name=self.name,
@@ -712,26 +747,42 @@ class OktaPlugin(ConnectorPlugin):
                 error=safe_error(exc, secrets=[self.config.get("OKTA_API_TOKEN")]),
             )
 
-        subject = self._to_member(subject_raw, is_subject=True)
-        members = [subject]
-        seen = {subject["okta_id"]}
-        for raw in sorted(
-            raw_reports, key=lambda u: ((u.get("profile") or {}).get("login") or "").lower()
-        ):
-            member = self._to_member(raw, is_subject=False)
-            # A directory that lists someone as their own manager, or the same
-            # report twice, must not double-count them in the matrix.
-            if member["okta_id"] in seen:
+        subject_id = subject_raw.get("id")
+        members: list[dict] = []
+        seen: set = set()
+        for raw in cohort_raw:
+            member_id = raw.get("id")
+            # A directory that lists the same person twice must not double-count
+            # them in the matrix.
+            if member_id in seen:
                 continue
-            seen.add(member["okta_id"])
-            members.append(member)
+            seen.add(member_id)
+            members.append(self._to_member(raw, is_subject=member_id == subject_id))
+
+        # The queried person is always in the comparison. In peer mode the
+        # cohort search normally already includes them; in reports mode (they
+        # are the manager) it never does, so add them here.
+        if subject_id not in seen:
+            members.append(self._to_member(subject_raw, is_subject=True))
+
+        # Subject first, then teammates alphabetically -- a stable order two
+        # runs can be diffed against.
+        members.sort(key=lambda m: (not m["is_subject"], (m["login"] or "").lower()))
 
         return ConnectorResult(
             plugin_name=self.name,
             identifier=identifier,
-            data={"found": True, "members": members, "count": len(members)},
-            properties={"subject_okta_id": subject["okta_id"]},
-            tags=["solo"] if len(members) == 1 else ["has-reports"],
+            data={
+                "found": True,
+                "members": members,
+                "count": len(members),
+                # The manager the cohort is keyed on (None in reports mode), so
+                # the CLI can name whose team this is.
+                "manager": manager_ref if cohort_kind == "peers" else None,
+                "cohort": cohort_kind,
+            },
+            properties={"subject_okta_id": subject_id},
+            tags=["solo"] if len(members) == 1 else [f"cohort-{cohort_kind}"],
         )
 
     async def fetch_team_groups(self, identifier: str) -> ConnectorResult:
@@ -775,8 +826,14 @@ class OktaPlugin(ConnectorPlugin):
         return ConnectorResult(
             plugin_name=self.name,
             identifier=identifier,
-            data={"found": True, "subject": members[0]["login"], **comparison},
-            properties={"subject_okta_id": members[0]["okta_id"]},
+            data={
+                "found": True,
+                "subject": next((m["login"] for m in members if m["is_subject"]), identifier),
+                "manager": team.data.get("manager"),
+                "cohort": team.data.get("cohort"),
+                **comparison,
+            },
+            properties={"subject_okta_id": team.properties.get("subject_okta_id")},
         )
 
     async def fetch_search(self, query: str, *, fetch_all: bool = False) -> ConnectorResult:
@@ -1090,20 +1147,23 @@ class OktaPlugin(ConnectorPlugin):
             ),
         )
 
-    async def _call_reports_backend(self, subject_login: str) -> list[dict]:
-        """Users whose manager attribute points at `subject_login`.
+    async def _call_cohort_backend(self, manager_ref: str) -> list[dict]:
+        """Users whose manager attribute points at `manager_ref`.
 
-        Paginated like the other list endpoints, because an under-reported
-        team would silently drop a person from the comparison -- the same
-        "never stop at page one" reasoning the app/device lists follow.
+        `manager_ref` is whatever `profile.<managerAttr>` holds -- normally the
+        manager's login/email/id -- so this returns everyone reporting to that
+        manager (the subject and their peers). Paginated like the other list
+        endpoints, because an under-reported team would silently drop a person
+        from the comparison -- the same "never stop at page one" reasoning the
+        app/device lists follow.
         """
         if self.mock_mode:
-            return self._mock_reports_fixture()
+            return self._mock_cohort_fixture()
 
         org_url = self.config.require("OKTA_ORG_URL").rstrip("/")
-        # Escape backslashes then quotes so a login cannot terminate the filter
+        # Escape backslashes then quotes so a value cannot terminate the filter
         # string or smuggle an operator into it (same guard as the name search).
-        safe = subject_login.replace("\\", "\\\\").replace('"', '\\"')
+        safe = manager_ref.replace("\\", "\\\\").replace('"', '\\"')
         expression = f'profile.{self._manager_attribute} eq "{safe}"'
 
         url = f"{org_url}/api/v1/users"
@@ -1122,7 +1182,7 @@ class OktaPlugin(ConnectorPlugin):
 
                 if response.status_code in (401, 403):
                     raise RuntimeError(
-                        "Okta refused the direct-reports search. This API token may lack "
+                        "Okta refused the team-cohort search. This API token may lack "
                         "user read access across the directory, which is broader than "
                         "reading a single known user."
                     )
@@ -1196,6 +1256,10 @@ class OktaPlugin(ConnectorPlugin):
                 # Fictional value; the real attribute's type is org-defined
                 # and this connector does not care which it is.
                 DEFAULT_ACCESS_ATTRIBUTE: False,
+                # A manager so `--team` in mock mode exercises the peer-cohort
+                # path (compare against teammates who share this manager), which
+                # is the real behaviour, rather than the no-manager fallback.
+                DEFAULT_MANAGER_ATTRIBUTE: "mmanager",
             },
         }
 
@@ -1289,9 +1353,10 @@ class OktaPlugin(ConnectorPlugin):
             for i, name in enumerate(names)
         ]
 
-    def _mock_reports_fixture(self) -> list[dict]:
-        """Three direct reports for the mock manager, with distinct ids so the
-        fixture memberships above give each a different column."""
+    def _mock_cohort_fixture(self) -> list[dict]:
+        """Three teammates in the mock manager's cohort, with distinct ids so
+        the fixture memberships above give each a different column. The queried
+        subject is added by `fetch_team` itself, so it is not repeated here."""
         return [
             {"id": "00uMOCKREPORT00000001", "status": "ACTIVE",
              "profile": {"login": "arivera", "firstName": "Ana", "lastName": "Rivera",
@@ -1707,15 +1772,32 @@ class OktaPlugin(ConnectorPlugin):
             members = result.data["members"]
             rows = result.data["groups"]
             summary = result.data["summary"]
+            cohort = result.data.get("cohort")
+            manager = result.data.get("manager")
+            subject_login = result.data.get("subject") or identifier
+
+            # Say whose team this is up front, so it is clear the comparison is
+            # against the subject's peers -- not, say, their reports.
+            if cohort == "peers":
+                console.print(
+                    f"[dim]Team = everyone who reports to[/dim] [bold]{manager}[/bold]"
+                    f"[dim]; comparing[/dim] [bold]{subject_login}[/bold] "
+                    "[dim]against their teammates.[/dim]"
+                )
+            elif cohort == "reports":
+                console.print(
+                    f"[yellow]No manager on {subject_login}'s Okta profile[/yellow] "
+                    "[dim]- comparing their direct reports instead.[/dim]"
+                )
 
             table = Table(
-                title=f"Group comparison - team of {identifier} ({summary['member_count']} members)"
+                title=f"Group comparison - team of {subject_login} ({summary['member_count']} members)"
             )
             table.add_column("group")
             for member in members:
                 label = member["login"] or "?"
                 if member["is_subject"]:
-                    label += " (mgr)"
+                    label += " (subject)"
                 if member["groups"] is None:
                     label += " (n/a)"
                 table.add_column(label, no_wrap=True)
@@ -1747,7 +1829,12 @@ class OktaPlugin(ConnectorPlugin):
             if html_path:
                 try:
                     Path(html_path).write_text(
-                        render_team_html(result.data, subject_login=result.data["subject"]),
+                        render_team_html(
+                            result.data,
+                            subject_login=subject_login,
+                            manager=manager,
+                            cohort=cohort,
+                        ),
                         encoding="utf-8",
                     )
                 except OSError as exc:
