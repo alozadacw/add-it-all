@@ -157,6 +157,20 @@ def test_html_writes_a_file_and_reports_the_path(tmp_path):
     assert str(out_file) in _out(result)
 
 
+def test_include_deactivated_requires_team_mode():
+    result = runner.invoke(_app(MOCK_CONFIG), ["okta", "jdoe", "--include-deactivated"])
+
+    assert result.exit_code == 2
+    assert "--team" in _out(result)
+
+
+def test_team_accepts_include_deactivated():
+    result = runner.invoke(_app(MOCK_CONFIG), ["okta", "jchen", "--team", "--include-deactivated"])
+
+    assert result.exit_code == 0
+    assert "drift" in _out(result).lower()
+
+
 def test_html_requires_team_mode(tmp_path):
     """--html renders the team comparison; without --team there is nothing to
     render, so accepting it would leave someone believing they'd asked for

@@ -119,7 +119,7 @@ behavior is exercised by at least one real plugin in Stage 2.
 ---
 
 ## Stage 2 -- Okta Connector (real API, credentials available)
-**Status: mocks green** -- `pytest -m okta` 333 passed, 2026-09-15 (was 208
+**Status: mocks green** -- `pytest -m okta` 339 passed, 2026-09-15 (was 208
 on 2026-09-02; the `-g` groups section and the `--team` group-comparison view
 with `--html` export were added since). The unchecked tasks are all
 live-org confirmations blocked on a real token in `.env`: the manual smoke
@@ -290,12 +290,15 @@ Notes from the implementation:
   `created` date; unknown dates sort last) and **group rows are ordered
   shared-by-all first down to individual access, shaded as a prevalence heat
   map** with a legend — modelled on the reference sheet. (The terminal view is
-  deliberately left as the plainer yes/– table.) One member's failed groups
-  call degrades that column to `?` and is excluded from the maths rather than
-  sinking the run; a failure building the roster is a hard error. Two
-  org-specific unknowns remain — what the manager attribute holds
-  (login/email/id) and whether `hireDate` is populated — both configurable;
-  see the Open Decisions Log.
+  deliberately left as the plainer yes/– table.) **Deactivated
+  (`DEPROVISIONED`) teammates are excluded by default** — the queried subject
+  is always kept — and `--include-deactivated` opts them back in for an
+  offboarding audit; the count excluded is surfaced in both the terminal and
+  the page. One member's failed groups call degrades that column to `?` and is
+  excluded from the maths rather than sinking the run; a failure building the
+  roster is a hard error. Two org-specific unknowns remain — what the manager
+  attribute holds (login/email/id) and whether `hireDate` is populated — both
+  configurable; see the Open Decisions Log.
 - **`-a` lists applications** via `GET /api/v1/users/{userId}/appLinks`, the
   same list that builds the user's Okta dashboard.
   - **It answers "what can they open", not "how were they granted it".**
@@ -717,6 +720,20 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       but confirm the org's schema in the Stage 2 live smoke test before
       relying on the roster. Group memberships come from `GET /users/{id}/
       groups`, also new and exercised by the `-g` section.
+- [x] ~~Whether `--team` should include deactivated teammates~~ **Resolved
+      2026-09-15: exclude by default, `--include-deactivated` opts in.** The
+      comparison answers "who currently has access", so a `DEPROVISIONED`
+      teammate is dropped (and the count surfaced) rather than shown as a
+      column of gaps. The queried subject is never dropped — looking up a
+      leaver to check their own access was revoked is a legitimate use — and
+      `--include-deactivated` restores everyone for an offboarding audit. The
+      filter is **client-side**, so the default holds regardless of API
+      behaviour; but note Okta's List Users endpoint is documented to exclude
+      `DEPROVISIONED` by default (same caveat as `--find`), so
+      `--include-deactivated` will only actually surface leavers if the search
+      returns them — unverified against a real org, flag for the live smoke
+      test. SUSPENDED/LOCKED_OUT are *not* filtered: those are active accounts
+      that are merely blocked, not deactivated.
 - [ ] **Authenticators and devices are not joined.** An Okta Verify push
       factor and an Okta device registry entry can refer to the same phone,
       but the factor `profile.name` and the device `displayName` are only

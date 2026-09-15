@@ -58,13 +58,14 @@ def _user(
     manager: str | None = None,
     hire: str | None = None,
     created: str | None = None,
+    status: str = "ACTIVE",
 ) -> dict:
     profile = {"login": login, "email": f"{login}@example.com", "firstName": first, "lastName": last}
     if manager is not None:
         profile["managerId"] = manager
     if hire is not None:
         profile["hireDate"] = hire
-    user = {"id": okta_id, "status": "ACTIVE", "profile": profile}
+    user = {"id": okta_id, "status": status, "profile": profile}
     if created is not None:
         user["created"] = created
     return user
@@ -265,6 +266,70 @@ async def test_manager_attribute_is_configurable():
 
     sent = route.calls.last.request.url.params["search"]
     assert 'profile.managerEmail eq "boss@example.com"' in sent
+
+
+# --- deactivated teammates ----------------------------------------------------
+
+
+@respx.mock
+async def test_deactivated_teammates_are_excluded_by_default():
+    """The comparison is about who currently has access, so a deprovisioned
+    teammate is dropped and counted rather than shown as a column of gaps."""
+    _mock_subject("jchen", manager="bigboss")
+    _mock_cohort(
+        _user("jchen", SUBJECT_ID, "Jules", "Chen", manager="bigboss"),
+        _user("arivera", R1_ID, "Ana", "Rivera", manager="bigboss"),
+        _user("gone", R2_ID, "Gone", "Leaver", manager="bigboss", status="DEPROVISIONED"),
+    )
+
+    result = await _plugin().fetch_team("jchen")
+
+    assert {m["login"] for m in result.data["members"]} == {"jchen", "arivera"}
+    assert result.data["excluded_deactivated"] == 1
+
+
+@respx.mock
+async def test_include_deactivated_keeps_them():
+    _mock_subject("jchen", manager="bigboss")
+    _mock_cohort(
+        _user("jchen", SUBJECT_ID, "Jules", "Chen", manager="bigboss"),
+        _user("gone", R2_ID, "Gone", "Leaver", manager="bigboss", status="DEPROVISIONED"),
+    )
+
+    result = await _plugin().fetch_team("jchen", include_deactivated=True)
+
+    assert "gone" in {m["login"] for m in result.data["members"]}
+    assert result.data["excluded_deactivated"] == 0
+
+
+@respx.mock
+async def test_a_deactivated_subject_is_never_dropped():
+    """You asked about this person by name; even deactivated, they stay in the
+    comparison (checking whether *their* access was revoked is the point)."""
+    subject = _user("jgone", SUBJECT_ID, "J", "Gone", manager="bigboss", status="DEPROVISIONED")
+    respx.get(f"{USERS_URL}/jgone").mock(return_value=httpx.Response(200, json=subject))
+    _mock_cohort(subject, _user("arivera", R1_ID, "Ana", "Rivera", manager="bigboss"))
+
+    result = await _plugin().fetch_team("jgone")
+
+    subject_member = next(m for m in result.data["members"] if m["is_subject"])
+    assert subject_member["login"] == "jgone"
+    assert result.data["excluded_deactivated"] == 0
+
+
+@respx.mock
+async def test_team_group_comparison_reports_excluded_deactivated_count():
+    _mock_subject("jchen", manager="bigboss")
+    _mock_cohort(
+        _user("jchen", SUBJECT_ID, "Jules", "Chen", manager="bigboss"),
+        _user("gone", R2_ID, "Gone", "Leaver", manager="bigboss", status="DEPROVISIONED"),
+    )
+    _mock_groups(SUBJECT_ID, "Everyone")
+
+    result = await _plugin().fetch_team_groups("jchen")
+
+    assert result.data["excluded_deactivated"] == 1
+    assert {m["login"] for m in result.data["members"]} == {"jchen"}
 
 
 # --- hire date -----------------------------------------------------------------

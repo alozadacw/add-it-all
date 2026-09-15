@@ -454,6 +454,7 @@ def render_team_html(
     subject_login: str,
     manager: str | None = None,
     cohort: str | None = None,
+    excluded_deactivated: int = 0,
 ) -> str:
     """Render `comparison` (from `build_comparison`) as a standalone web page.
 
@@ -540,13 +541,18 @@ def render_team_html(
         for c in sorted({r["count"] for r in ordered_rows}, reverse=True)
     )
 
-    note = ""
-    if summary["error_count"]:
-        note = (
-            f'<p class="sub">{summary["error_count"]} member(s) could not be '
-            "read and are shown as <code>?</code> -- they are excluded from the "
-            "shared counts.</p>"
+    notes = []
+    if excluded_deactivated:
+        notes.append(
+            f"{excluded_deactivated} deactivated teammate(s) excluded "
+            "(pass <code>--include-deactivated</code> to show them)."
         )
+    if summary["error_count"]:
+        notes.append(
+            f"{summary['error_count']} member(s) could not be read and are shown "
+            "as <code>?</code> -- they are excluded from the shared counts."
+        )
+    note = f'<p class="sub">{" ".join(notes)}</p>' if notes else ""
 
     subject = _escape(subject_login)
     if cohort == "peers" and manager:
@@ -774,7 +780,9 @@ class OktaPlugin(ConnectorPlugin):
             tags=["no-groups"] if not groups else ["has-groups"],
         )
 
-    async def fetch_team(self, identifier: str) -> ConnectorResult:
+    async def fetch_team(
+        self, identifier: str, *, include_deactivated: bool = False
+    ) -> ConnectorResult:
         """Resolve `identifier` to the team they sit in, for comparison.
 
         The subject is *not* assumed to be a manager. We read the subject's
@@ -825,16 +833,28 @@ class OktaPlugin(ConnectorPlugin):
         hire_attr = self._hire_date_attribute
         members: list[dict] = []
         seen: set = set()
+        excluded_deactivated = 0
         for raw in cohort_raw:
             member_id = raw.get("id")
             # A directory that lists the same person twice must not double-count
             # them in the matrix.
             if member_id in seen:
                 continue
+            is_subject = member_id == subject_id
+            # Deactivated (DEPROVISIONED) teammates are dropped by default: the
+            # comparison is about who *currently* has access. The subject is
+            # never dropped -- they were asked for by name -- and
+            # include_deactivated opts everyone back in, to audit whether a
+            # leaver's access was actually removed.
+            if (
+                not is_subject
+                and not include_deactivated
+                and raw.get("status") == _DEACTIVATED_STATUS
+            ):
+                excluded_deactivated += 1
+                continue
             seen.add(member_id)
-            members.append(
-                self._to_member(raw, is_subject=member_id == subject_id, hire_attr=hire_attr)
-            )
+            members.append(self._to_member(raw, is_subject=is_subject, hire_attr=hire_attr))
 
         # The queried person is always in the comparison. In peer mode the
         # cohort search normally already includes them; in reports mode (they
@@ -857,12 +877,17 @@ class OktaPlugin(ConnectorPlugin):
                 # the CLI can name whose team this is.
                 "manager": manager_ref if cohort_kind == "peers" else None,
                 "cohort": cohort_kind,
+                # How many teammates were dropped for being deactivated, so the
+                # CLI/HTML can say so rather than silently shrinking the team.
+                "excluded_deactivated": excluded_deactivated,
             },
             properties={"subject_okta_id": subject_id},
             tags=["solo"] if len(members) == 1 else [f"cohort-{cohort_kind}"],
         )
 
-    async def fetch_team_groups(self, identifier: str) -> ConnectorResult:
+    async def fetch_team_groups(
+        self, identifier: str, *, include_deactivated: bool = False
+    ) -> ConnectorResult:
         """Build the roster, then fetch every member's groups and compare them.
 
         The per-member groups calls run concurrently -- this is exactly the
@@ -873,7 +898,7 @@ class OktaPlugin(ConnectorPlugin):
         roster itself is a hard error, because an empty matrix would read as
         "this manager has no team".
         """
-        team = await self.fetch_team(identifier)
+        team = await self.fetch_team(identifier, include_deactivated=include_deactivated)
         if not team.ok:
             return ConnectorResult(
                 plugin_name=self.name, identifier=identifier, error=team.error
@@ -908,6 +933,7 @@ class OktaPlugin(ConnectorPlugin):
                 "subject": next((m["login"] for m in members if m["is_subject"]), identifier),
                 "manager": team.data.get("manager"),
                 "cohort": team.data.get("cohort"),
+                "excluded_deactivated": team.data.get("excluded_deactivated", 0),
                 **comparison,
             },
             properties={"subject_okta_id": team.properties.get("subject_okta_id")},
@@ -1656,6 +1682,14 @@ class OktaPlugin(ConnectorPlugin):
                 help="With --team, also write the comparison to PATH as a "
                 "standalone HTML page you can open in a browser.",
             ),
+            include_deactivated: bool = typer.Option(
+                False,
+                "--include-deactivated",
+                help="With --team, keep deactivated (deprovisioned) teammates in "
+                "the comparison. They are excluded by default, since the point is "
+                "who currently has access. The queried person is always shown, "
+                "whatever their status.",
+            ),
             find: bool = typer.Option(
                 False,
                 "--find",
@@ -1699,6 +1733,7 @@ class OktaPlugin(ConnectorPlugin):
                         ("--status", status), ("--devices", devices), ("--apps", apps),
                         ("--authenticators", authenticators), ("--groups", groups),
                         ("--team", team), ("--last-signin", last_signin),
+                        ("--include-deactivated", include_deactivated),
                     )
                     if on
                 ]
@@ -1732,7 +1767,11 @@ class OktaPlugin(ConnectorPlugin):
                         "--team compares a whole team; the section flags describe one person."
                     )
                     raise typer.Exit(code=2)
-                _print_team(identifier, html_path=html_path or None)
+                _print_team(
+                    identifier,
+                    html_path=html_path or None,
+                    include_deactivated=include_deactivated,
+                )
                 return
 
             # --html renders the team comparison; outside --team there is
@@ -1742,6 +1781,16 @@ class OktaPlugin(ConnectorPlugin):
                 console.print(
                     "[red]--html only applies to --team.[/red]\n"
                     f"Did you mean: [bold]lookup-cli okta {identifier} --team --html {html_path}[/bold]?"
+                )
+                raise typer.Exit(code=2)
+
+            # Same reasoning for the deactivated-teammate toggle: it only shapes
+            # the team comparison, so silently accepting it elsewhere would leave
+            # someone believing it had an effect.
+            if include_deactivated:
+                console.print(
+                    "[red]--include-deactivated only applies to --team.[/red]\n"
+                    f"Did you mean: [bold]lookup-cli okta {identifier} --team --include-deactivated[/bold]?"
                 )
                 raise typer.Exit(code=2)
 
@@ -1837,9 +1886,13 @@ class OktaPlugin(ConnectorPlugin):
                 table.add_row(group["name"] or "-", group["type"] or "-")
             console.print(table)
 
-        def _print_team(identifier: str, html_path: str | None) -> None:
+        def _print_team(
+            identifier: str, html_path: str | None, include_deactivated: bool = False
+        ) -> None:
             """Render the team's group comparison, and optionally write it as HTML."""
-            result = asyncio.run(self.fetch_team_groups(identifier))
+            result = asyncio.run(
+                self.fetch_team_groups(identifier, include_deactivated=include_deactivated)
+            )
 
             if not result.ok:
                 console.print(f"[red]Team comparison failed:[/red] {result.error}")
@@ -1909,6 +1962,12 @@ class OktaPlugin(ConnectorPlugin):
                     f"[yellow]{summary['error_count']} member(s) could not be read[/yellow] "
                     "(shown as ?) and are excluded from the shared/drift counts."
                 )
+            excluded = result.data.get("excluded_deactivated", 0)
+            if excluded:
+                console.print(
+                    f"[dim]{excluded} deactivated teammate(s) excluded; "
+                    "use --include-deactivated to show them.[/dim]"
+                )
 
             if html_path:
                 try:
@@ -1918,6 +1977,7 @@ class OktaPlugin(ConnectorPlugin):
                             subject_login=subject_login,
                             manager=manager,
                             cohort=cohort,
+                            excluded_deactivated=excluded,
                         ),
                         encoding="utf-8",
                     )
