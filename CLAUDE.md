@@ -200,7 +200,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   under `-m cache`. `cache.py` and `config.py` both 100%. Expiry now
   deletes rows; `lookup-cli cache clear|purge` added; DB is `0600` in a
   `0700` directory.
-- Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 332 passed.
+- Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 333 passed.
   `plugins/okta_plugin/` implements the real client. Four sections select
   via flags (bare = status), and `LOOKUP_CLI_MOCK_OKTA=1` runs any of them
   with no credentials:
@@ -259,7 +259,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   is 410 Gone, unbounded JQL is refused, and the replacement returns **no
   `total`** -- so a count is only real when `complete` is true, otherwise
   the CLI says "at least N". JQL needs an accountId, never a username.
-- Whole suite: 607 tests, 98% coverage, single `pytest` run.
+- Whole suite: 608 tests, 98% coverage, single `pytest` run.
 - Stages 3-8: not started. Both contract decisions (async `fetch()`,
   injected `PluginConfig`) are resolved and implemented, so Jira (Stage 3)
   is a straight copy of the Okta shape.

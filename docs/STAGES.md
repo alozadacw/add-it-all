@@ -119,7 +119,7 @@ behavior is exercised by at least one real plugin in Stage 2.
 ---
 
 ## Stage 2 -- Okta Connector (real API, credentials available)
-**Status: mocks green** -- `pytest -m okta` 332 passed, 2026-09-15 (was 208
+**Status: mocks green** -- `pytest -m okta` 333 passed, 2026-09-15 (was 208
 on 2026-09-02; the `-g` groups section and the `--team` group-comparison view
 with `--html` export were added since). The unchecked tasks are all
 live-org confirmations blocked on a real token in `.env`: the manual smoke

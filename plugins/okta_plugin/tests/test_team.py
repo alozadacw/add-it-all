@@ -491,6 +491,16 @@ def test_render_team_html_accents_the_subject_column():
     html = render_team_html(_heatmap_comparison(), subject_login="aold")
 
     assert "who subj" in html
+    # The subject's whole column carries the highlight class, not just the header.
+    assert html.count("subjcol") > 1
+
+
+def test_render_team_html_shows_each_members_hire_date():
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    assert "2020-01-01" in html
+    assert "2023-01-01" in html
+    assert "2025-01-01" in html
 
 
 def test_render_team_html_marks_an_unreadable_member():

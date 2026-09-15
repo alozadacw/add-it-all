@@ -358,7 +358,7 @@ def build_comparison(members: list[dict]) -> dict:
 _HTML_STYLE = """
 :root {
   --bg:#f4f6fa; --panel:#fff; --panel2:#f8fafc; --ink:#1a2233; --soft:#59647a;
-  --line:#e1e6ef; --line2:#cbd3e1; --accent:#4f5bd5;
+  --line:#e1e6ef; --line2:#cbd3e1; --accent:#4f5bd5; --accent-soft:#ecedfb;
   --ok:#1f9d6b; --ok-bg:#e2f4ec; --warn:#c1810b; --warn-bg:#faf0d7;
   --crit:#d0453b; --crit-bg:#fbe6e4;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -366,39 +366,41 @@ _HTML_STYLE = """
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#0e1220; --panel:#161c2d; --panel2:#1b2234; --ink:#e7ecf5; --soft:#93a0ba;
-  --line:#263048; --line2:#35415e; --accent:#8b93ff;
+  --line:#263048; --line2:#35415e; --accent:#8b93ff; --accent-soft:#232a52;
   --ok:#4cc38a; --ok-bg:#14311f; --warn:#e0a94a; --warn-bg:#3a2c0f;
   --crit:#f0776c; --crit-bg:#3a1815;
 }}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
-.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 72px}
-.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
-h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
-.sub{color:var(--soft);margin:0}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:28px 0}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.tile .n{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
-.tile .l{font-size:12px;color:var(--soft);margin-top:2px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.5}
+.wrap{max-width:100%;margin:0;padding:28px 32px 64px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+h1{font-size:20px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--soft);margin:0;max-width:80ch}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(110px,1fr));gap:12px;margin:22px 0;max-width:680px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px}
+.tile .n{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+.tile .l{font-size:11px;color:var(--soft);margin-top:2px}
 .tile.warn{border-color:var(--warn);background:var(--warn-bg)}.tile.warn .n{color:var(--warn)}
-.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.scroll{overflow-x:auto;width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 table{border-collapse:collapse;width:100%}
-th,td{text-align:center;padding:10px 12px;border-bottom:1px solid var(--line)}
-thead th{position:sticky;top:0;background:var(--panel2);border-bottom:1px solid var(--line2);vertical-align:bottom;font-size:13px}
-th.grp{text-align:left;min-width:220px}
-tbody th{text-align:left;font-family:var(--mono);font-size:13px;font-weight:500;border-left:0}
+th,td{text-align:center;padding:6px 10px;border-bottom:1px solid var(--line)}
+thead th{position:sticky;top:0;background:var(--panel2);border-bottom:1px solid var(--line2);vertical-align:bottom;font-size:11.5px}
+th.grp{text-align:left;min-width:210px}
+tbody th{text-align:left;font-family:var(--mono);font-size:11.5px;font-weight:500;border-left:0}
 td{border-left:1px solid var(--line)}
 tbody tr:hover{background:var(--panel2)}
-.who{font-weight:600}.nm{font-size:12px;color:var(--soft)}
-.role{font-size:11px;color:var(--soft);font-family:var(--mono)}
+.who{font-weight:600;font-size:12px}.who.subj{color:var(--accent)}
+.nm{font-size:10.5px;color:var(--soft)}
+.hire{font-size:10px;color:var(--soft);font-family:var(--mono);font-variant-numeric:tabular-nums;margin-top:1px}
+.role{font-size:9.5px;color:var(--soft);font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
 code{font-family:var(--mono);font-size:.9em}
 td.na{color:var(--soft);font-family:var(--mono)}
-.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12.5px;color:var(--soft)}
+.subjcol{background:var(--accent-soft)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:11.5px;color:var(--soft)}
 .legend span{display:inline-flex;align-items:center;gap:7px}
-.who.subj{color:var(--accent)}
-.cnt{font-family:var(--mono);font-size:11px;color:var(--soft);margin-left:6px;font-variant-numeric:tabular-nums}
+.cnt{font-family:var(--mono);font-size:10px;color:var(--soft);margin-left:6px;font-variant-numeric:tabular-nums}
 td.hit{color:#fff;font-weight:700}
-tr.divider th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--soft);background:var(--panel2);text-transform:uppercase}
+tr.divider th{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--soft);background:var(--panel2);text-transform:uppercase}
 .chip{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;flex:0 0 auto}
 """
 
@@ -415,7 +417,14 @@ def _html_member_head(member: dict) -> str:
     who_class = "who subj" if member.get("is_subject") else "who"
     name = member.get("name")
     name_line = f'<div class="nm">{_escape(name)}</div>' if name else ""
-    return f'<div class="{who_class}">{login}</div>{name_line}<div class="role">{role}</div>'
+    # Hire date sits with the name; date part only. Unknown shows an em dash.
+    hire = member.get("hire_date")
+    hire_txt = _escape(str(hire)[:10]) if hire else "&mdash;"
+    hire_line = f'<div class="hire">{hire_txt}</div>'
+    return (
+        f'<div class="{who_class}">{login}</div>'
+        f'{name_line}{hire_line}<div class="role">{role}</div>'
+    )
 
 
 def _share_color(count: int, present_count: int) -> str:
@@ -472,7 +481,11 @@ def render_team_html(
     # (which uses build_comparison directly) keeps its own alphabetical order.
     ordered_rows = sorted(rows, key=lambda r: (-r["count"], (r["name"] or "").lower()))
 
-    heads = "".join(f"<th>{_html_member_head(m)}</th>" for m in ordered_members)
+    heads = "".join(
+        f'<th class="subjcol">{_html_member_head(m)}</th>' if m.get("is_subject")
+        else f"<th>{_html_member_head(m)}</th>"
+        for m in ordered_members
+    )
 
     body_rows = []
     divider_done = False
@@ -490,15 +503,21 @@ def render_team_html(
         fill = _share_color(count, present_count)
         cells = []
         for m in ordered_members:
+            # The subject's whole column carries the purple highlight, wherever
+            # hire-date ordering places it.
+            subj = ["subjcol"] if m.get("is_subject") else []
             if m.get("groups") is None:
-                cells.append('<td class="na">?</td>')
+                cells.append(f'<td class="{" ".join([*subj, "na"])}">?</td>')
                 continue
             if row["coverage"].get(m["login"], False):
                 # Filled with the row's band colour + a check, so membership
                 # reads without relying on colour alone.
-                cells.append(f'<td class="hit" style="background:{fill}">&check;</td>')
+                cells.append(
+                    f'<td class="{" ".join([*subj, "hit"])}" style="background:{fill}">&check;</td>'
+                )
             else:
-                cells.append("<td></td>")
+                attr = f' class="{subj[0]}"' if subj else ""
+                cells.append(f"<td{attr}></td>")
         body_rows.append(
             f'<tr><th><span class="chip" style="background:{fill}"></span>'
             f'{_escape(row["name"])}'
