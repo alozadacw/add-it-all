@@ -169,7 +169,10 @@ lookup-cli okta <user>                    # status (default view)
 lookup-cli okta <user> -d                 # devices only;  -sd for both
 lookup-cli okta <user> -a                 # applications;  -apps / --apps
 lookup-cli okta <user> -u                 # authenticators; -authenticators
-lookup-cli okta <user> -sdau              # all four sections
+lookup-cli okta <user> -g                 # Okta groups the user belongs to
+lookup-cli okta <user> -sdaug             # all five sections
+lookup-cli okta <user> --team             # compare group memberships across the team
+lookup-cli okta <user> --team --html f.html  # ...and write it as a standalone page
 lookup-cli okta --find <name>             # search by name -> usernames (not chainable)
 lookup-cli okta --find "first last"       # multiple words narrow (AND)
 lookup-cli okta --find <name> --all       # every match, not just the first 15
@@ -197,7 +200,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   under `-m cache`. `cache.py` and `config.py` both 100%. Expiry now
   deletes rows; `lookup-cli cache clear|purge` added; DB is `0600` in a
   `0700` directory.
-- Stage 2 (Okta): **mocks green** 2026-09-02 — `pytest -m okta` 208 passed.
+- Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 322 passed.
   `plugins/okta_plugin/` implements the real client. Four sections select
   via flags (bare = status), and `LOOKUP_CLI_MOCK_OKTA=1` runs any of them
   with no credentials:
@@ -206,6 +209,16 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
     sign-in times from the System Log)
   - `-a`/`-apps`/`--apps` — assigned applications
   - `-u`/`-authenticators`/`--authenticators` — enrolled MFA factors
+  - `-g`/`-groups`/`--groups` — Okta group memberships (bundles: `-sdaug`)
+  - `--team` — **mode flag** (long-only, composes with nothing, like `--find`):
+    fetch the person's team (them + direct reports, matched on
+    `OKTA_MANAGER_ATTRIBUTE`, default `managerId`) and compare everyone's
+    group memberships in a matrix; `--html PATH` also writes it as a
+    self-contained web page. Per-member group calls run concurrently; one
+    member's failure degrades its column (`?`, excluded from drift maths)
+    rather than sinking the run. ⚠️ Whether `managerId` holds a login/email/id
+    is org-specific — flagged in the Open Decisions Log and unverified against
+    a real org.
   - `--find` — resolve a partial name to a username. **Long-only and
     composes with nothing** (it is a mode, not a section); combining it with
     a section flag is a usage error. ⚠️ Okta's List Users endpoint excludes
@@ -237,7 +250,7 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   is 410 Gone, unbounded JQL is refused, and the replacement returns **no
   `total`** -- so a count is only real when `complete` is true, otherwise
   the CLI says "at least N". JQL needs an accountId, never a username.
-- Whole suite: 561 tests, 98% coverage, single `pytest` run.
+- Whole suite: 597 tests, 98% coverage, single `pytest` run.
 - Stages 3-8: not started. Both contract decisions (async `fetch()`,
   injected `PluginConfig`) are resolved and implemented, so Jira (Stage 3)
   is a straight copy of the Okta shape.

@@ -72,6 +72,8 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from html import escape as _escape
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -286,6 +288,217 @@ _STATUS_NOTES: dict[str, tuple[str, str]] = {
 }
 
 
+#: Okta stores the manager relationship on a Universal Directory attribute.
+#: `managerId` is the stock one, but which value it holds (the manager's
+#: login, email or employee id) is an org-specific schema decision, so the
+#: attribute name is overridable rather than hardcoded. See the Open
+#: Decisions Log in docs/STAGES.md.
+DEFAULT_MANAGER_ATTRIBUTE = "managerId"
+
+
+def build_comparison(members: list[dict]) -> dict:
+    """Line up several members' group memberships into a comparison matrix.
+
+    `members` is an ordered list (subject first) of
+    ``{"login", "name", "is_subject", "groups": list[str] | None, "error"}``.
+    A member whose groups could not be fetched carries ``groups=None`` and is
+    kept in the roster but **excluded from the coverage denominator** -- an
+    unreadable member is not evidence they are missing from a group, and
+    counting them as absent would invent drift that may not exist.
+
+    Returns ``{"members", "groups", "summary"}`` where each group row records
+    per-member coverage plus whether every readable member has it (`everyone`)
+    or only some do (`drift`). Pure and side-effect free, so it is tested
+    directly without any network.
+    """
+    present = [m for m in members if m.get("groups") is not None]
+    names = sorted({g for m in present for g in m["groups"]}, key=str.lower)
+
+    rows: list[dict] = []
+    for name in names:
+        coverage = {m["login"]: name in set(m["groups"]) for m in present}
+        count = sum(coverage.values())
+        everyone = bool(present) and count == len(present)
+        rows.append(
+            {
+                "name": name,
+                "coverage": coverage,
+                "count": count,
+                "everyone": everyone,
+                # Drift = some-but-not-all: the rows an operator actually needs
+                # to look at. A group everyone shares and a group nobody here
+                # has are both uninteresting for a "who diverges" question.
+                "drift": 0 < count < len(present),
+            }
+        )
+
+    return {
+        "members": members,
+        "groups": rows,
+        "summary": {
+            "member_count": len(members),
+            "present_count": len(present),
+            "group_count": len(names),
+            "shared_by_all": sum(1 for r in rows if r["everyone"]),
+            "drift_count": sum(1 for r in rows if r["drift"]),
+            "error_count": sum(1 for m in members if m.get("groups") is None),
+        },
+    }
+
+
+#: Self-contained styles for the exported comparison page. Inlined so the file
+#: opens straight from disk with no network -- a strict "no external resources"
+#: rule the test pins by asserting no http(s) URL appears in the output.
+_HTML_STYLE = """
+:root {
+  --bg:#f4f6fa; --panel:#fff; --panel2:#f8fafc; --ink:#1a2233; --soft:#59647a;
+  --line:#e1e6ef; --line2:#cbd3e1; --accent:#4f5bd5;
+  --ok:#1f9d6b; --ok-bg:#e2f4ec; --warn:#c1810b; --warn-bg:#faf0d7;
+  --crit:#d0453b; --crit-bg:#fbe6e4;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1220; --panel:#161c2d; --panel2:#1b2234; --ink:#e7ecf5; --soft:#93a0ba;
+  --line:#263048; --line2:#35415e; --accent:#8b93ff;
+  --ok:#4cc38a; --ok-bg:#14311f; --warn:#e0a94a; --warn-bg:#3a2c0f;
+  --crit:#f0776c; --crit-bg:#3a1815;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 72px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--soft);margin:0}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:28px 0}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.tile .n{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.tile .l{font-size:12px;color:var(--soft);margin-top:2px}
+.tile.warn{border-color:var(--warn);background:var(--warn-bg)}.tile.warn .n{color:var(--warn)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+thead th{position:sticky;top:0;background:var(--panel2);border-bottom:1px solid var(--line2);vertical-align:bottom;font-size:13px}
+th.grp{text-align:left;min-width:220px}
+tbody th{text-align:left;font-family:var(--mono);font-size:13px;font-weight:500;border-left:0}
+td{border-left:1px solid var(--line)}
+tbody tr:hover{background:var(--panel2)}
+.who{font-weight:600}.nm{font-size:12px;color:var(--soft)}
+.role{font-size:11px;color:var(--soft);font-family:var(--mono)}
+code{font-family:var(--mono);font-size:.9em}
+.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;margin-left:8px;white-space:nowrap}
+.tag.all{color:var(--ok);background:var(--ok-bg)}
+.tag.drift{color:var(--warn);background:var(--warn-bg)}
+.dot{width:14px;height:14px;border-radius:50%;display:inline-block}
+.yes{background:var(--accent)}
+.no{background:transparent;border:1.5px dashed var(--line2)}
+td.miss{background:var(--crit-bg)}td.miss .no{border-color:var(--crit)}
+td.na{color:var(--soft);font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-size:12.5px;color:var(--soft)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+"""
+
+
+def _html_member_head(member: dict) -> str:
+    """Column header for one member: login, display name, and a role/state note."""
+    login = _escape(member.get("login") or "?")
+    if member.get("groups") is None:
+        role = "unavailable"
+    elif member.get("is_subject"):
+        role = "manager"
+    else:
+        role = "report"
+    name = member.get("name")
+    name_line = f'<div class="nm">{_escape(name)}</div>' if name else ""
+    return f'<div class="who">{login}</div>{name_line}<div class="role">{role}</div>'
+
+
+def render_team_html(comparison: dict, *, subject_login: str) -> str:
+    """Render `comparison` (from `build_comparison`) as a standalone web page.
+
+    Everything from the directory -- logins, display names, group names -- is
+    HTML-escaped: it is attacker-influenceable data being written into a file
+    a human then opens in a browser. The page embeds all of its CSS and uses
+    no external resources so it works offline, straight from disk.
+    """
+    members = comparison["members"]
+    rows = comparison["groups"]
+    summary = comparison["summary"]
+
+    heads = "".join(f"<th>{_html_member_head(m)}</th>" for m in members)
+
+    body_rows = []
+    for row in rows:
+        tag = ' <span class="tag all">all</span>' if row["everyone"] else (
+            ' <span class="tag drift">drift</span>' if row["drift"] else ""
+        )
+        cells = []
+        for m in members:
+            if m.get("groups") is None:
+                cells.append('<td class="na">?</td>')
+                continue
+            has = row["coverage"].get(m["login"], False)
+            if has:
+                cells.append('<td><span class="dot yes"></span></td>')
+            else:
+                # A gap in a drift row is the actionable case: highlight it.
+                klass = ' class="miss"' if row["drift"] else ""
+                cells.append(f'<td{klass}><span class="dot no"></span></td>')
+        body_rows.append(
+            f'<tr><th>{_escape(row["name"])}{tag}</th>{"".join(cells)}</tr>'
+        )
+
+    matrix = (
+        '<div class="scroll"><table><thead><tr>'
+        f'<th class="grp">group</th>{heads}</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody></table></div>'
+        if rows
+        else '<p class="sub">No groups to compare.</p>'
+    )
+
+    note = ""
+    if summary["error_count"]:
+        note = (
+            f'<p class="sub">{summary["error_count"]} member(s) could not be '
+            "read and are shown as <code>?</code> -- they are excluded from the "
+            "shared/drift counts.</p>"
+        )
+
+    subject = _escape(subject_login)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Okta team &middot; {subject}</title>
+<style>{_HTML_STYLE}</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">lookup-cli &middot; okta &middot; team group comparison</p>
+  <h1>Group comparison &mdash; team of {subject}</h1>
+  <p class="sub">Every member's Okta group memberships, lined up so gaps and
+  extra access stand out. Rows tagged <b>drift</b> are where the team diverges.</p>
+  <div class="tiles">
+    <div class="tile"><div class="n">{summary["member_count"]}</div><div class="l">team members</div></div>
+    <div class="tile"><div class="n">{summary["group_count"]}</div><div class="l">distinct groups</div></div>
+    <div class="tile"><div class="n">{summary["shared_by_all"]}</div><div class="l">shared by all</div></div>
+    <div class="tile warn"><div class="n">{summary["drift_count"]}</div><div class="l">groups with drift</div></div>
+  </div>
+  {matrix}
+  <div class="legend">
+    <span><span class="dot yes"></span> in group</span>
+    <span><span class="dot no"></span> not in group</span>
+    <span><span class="tag all">all</span> everyone has it</span>
+    <span><span class="tag drift">drift</span> partial coverage</span>
+  </div>
+  {note}
+</div>
+</body>
+</html>
+"""
+
+
 class OktaPlugin(ConnectorPlugin):
     name = "okta"
     required_credentials = ("OKTA_ORG_URL", "OKTA_API_TOKEN")
@@ -293,6 +506,10 @@ class OktaPlugin(ConnectorPlugin):
     @property
     def _access_attribute(self) -> str:
         return self.config.get("OKTA_ACCESS_ATTRIBUTE") or DEFAULT_ACCESS_ATTRIBUTE
+
+    @property
+    def _manager_attribute(self) -> str:
+        return self.config.get("OKTA_MANAGER_ATTRIBUTE") or DEFAULT_MANAGER_ATTRIBUTE
 
     async def fetch(self, identifier: str) -> ConnectorResult:
         try:
@@ -425,6 +642,141 @@ class OktaPlugin(ConnectorPlugin):
             data={"found": True, "authenticators": factors, "count": len(factors)},
             properties={"okta_id": resolved},
             tags=["no-authenticators"] if not factors else ["has-authenticators"],
+        )
+
+    async def fetch_groups(self, identifier: str, *, okta_id: str | None = None) -> ConnectorResult:
+        """List the Okta groups `identifier` belongs to.
+
+        `GET /api/v1/users/{userId}/groups`. This is the per-person building
+        block the team comparison fans out over, and a section in its own
+        right (`okta <user> -g`). Like `fetch()`, never raises for ordinary
+        failures. Pass `okta_id` to skip re-resolving a user the caller
+        already looked up.
+        """
+        try:
+            resolved = await self._resolve_okta_id(identifier, okta_id)
+            if resolved is None:
+                return ConnectorResult(
+                    plugin_name=self.name,
+                    identifier=identifier,
+                    data={"found": False, "groups": [], "count": 0},
+                    tags=["not-found"],
+                )
+            raw_groups = await self._call_groups_backend(resolved)
+        except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation
+            return ConnectorResult(
+                plugin_name=self.name,
+                identifier=identifier,
+                error=safe_error(exc, secrets=[self.config.get("OKTA_API_TOKEN")]),
+            )
+
+        # Okta returns groups in an arbitrary order; alphabetical is what lets
+        # two people's memberships be lined up side by side.
+        groups = sorted(
+            (self._to_group(entry) for entry in raw_groups),
+            key=lambda g: (g["name"] or "").lower(),
+        )
+        return ConnectorResult(
+            plugin_name=self.name,
+            identifier=identifier,
+            data={"found": True, "groups": groups, "count": len(groups)},
+            properties={"okta_id": resolved},
+            tags=["no-groups"] if not groups else ["has-groups"],
+        )
+
+    async def fetch_team(self, identifier: str) -> ConnectorResult:
+        """Resolve `identifier` to their team roster: the person + direct reports.
+
+        The subject comes from the ordinary user lookup; direct reports come
+        from `GET /users?search=profile.<managerAttr> eq "<login>"`. What
+        `<managerAttr>` (default `managerId`) actually holds is org-specific,
+        which is why the attribute is configurable and why the value matched is
+        the subject's login -- see the Open Decisions Log. Like `fetch()`,
+        never raises for ordinary failures.
+        """
+        try:
+            subject_raw = await self._call_backend(identifier)
+            if subject_raw is None:
+                return ConnectorResult(
+                    plugin_name=self.name,
+                    identifier=identifier,
+                    data={"found": False, "members": [], "count": 0},
+                    tags=["not-found"],
+                )
+            subject_login = (subject_raw.get("profile") or {}).get("login") or identifier
+            raw_reports = await self._call_reports_backend(subject_login)
+        except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation
+            return ConnectorResult(
+                plugin_name=self.name,
+                identifier=identifier,
+                error=safe_error(exc, secrets=[self.config.get("OKTA_API_TOKEN")]),
+            )
+
+        subject = self._to_member(subject_raw, is_subject=True)
+        members = [subject]
+        seen = {subject["okta_id"]}
+        for raw in sorted(
+            raw_reports, key=lambda u: ((u.get("profile") or {}).get("login") or "").lower()
+        ):
+            member = self._to_member(raw, is_subject=False)
+            # A directory that lists someone as their own manager, or the same
+            # report twice, must not double-count them in the matrix.
+            if member["okta_id"] in seen:
+                continue
+            seen.add(member["okta_id"])
+            members.append(member)
+
+        return ConnectorResult(
+            plugin_name=self.name,
+            identifier=identifier,
+            data={"found": True, "members": members, "count": len(members)},
+            properties={"subject_okta_id": subject["okta_id"]},
+            tags=["solo"] if len(members) == 1 else ["has-reports"],
+        )
+
+    async def fetch_team_groups(self, identifier: str) -> ConnectorResult:
+        """Build the roster, then fetch every member's groups and compare them.
+
+        The per-member groups calls run concurrently -- this is exactly the
+        fan-out `fetch()` being async exists for, so a team of six costs one
+        round trip's worth of wall-clock, not six. A single member's failure
+        degrades that member's column (rendered `?`, excluded from the drift
+        maths) rather than sinking the whole comparison; a failure building the
+        roster itself is a hard error, because an empty matrix would read as
+        "this manager has no team".
+        """
+        team = await self.fetch_team(identifier)
+        if not team.ok:
+            return ConnectorResult(
+                plugin_name=self.name, identifier=identifier, error=team.error
+            )
+        if not team.data.get("found"):
+            return ConnectorResult(
+                plugin_name=self.name,
+                identifier=identifier,
+                data={"found": False, "members": [], "groups": [], "summary": {}},
+                tags=["not-found"],
+            )
+
+        members = team.data["members"]
+        group_results = await asyncio.gather(
+            *(self.fetch_groups(m["login"], okta_id=m["okta_id"]) for m in members)
+        )
+
+        entries: list[dict] = []
+        for member, result in zip(members, group_results):
+            if result.ok and result.data.get("found", True):
+                names = [g["name"] for g in result.data["groups"] if g["name"]]
+                entries.append({**member, "groups": sorted(names, key=str.lower), "error": None})
+            else:
+                entries.append({**member, "groups": None, "error": result.error or "not found"})
+
+        comparison = build_comparison(entries)
+        return ConnectorResult(
+            plugin_name=self.name,
+            identifier=identifier,
+            data={"found": True, "subject": members[0]["login"], **comparison},
+            properties={"subject_okta_id": members[0]["okta_id"]},
         )
 
     async def fetch_search(self, query: str, *, fetch_all: bool = False) -> ConnectorResult:
@@ -725,6 +1077,66 @@ class OktaPlugin(ConnectorPlugin):
             ),
         )
 
+    async def _call_groups_backend(self, okta_id: str) -> list[dict]:
+        if self.mock_mode:
+            return self._mock_groups_fixture(okta_id)
+
+        return await self._fetch_all_pages(
+            self._user_url(okta_id, "groups"),
+            on_denied=(
+                "Okta refused the group membership request. This API token may "
+                "lack group read access, which is granted separately from user "
+                "read access."
+            ),
+        )
+
+    async def _call_reports_backend(self, subject_login: str) -> list[dict]:
+        """Users whose manager attribute points at `subject_login`.
+
+        Paginated like the other list endpoints, because an under-reported
+        team would silently drop a person from the comparison -- the same
+        "never stop at page one" reasoning the app/device lists follow.
+        """
+        if self.mock_mode:
+            return self._mock_reports_fixture()
+
+        org_url = self.config.require("OKTA_ORG_URL").rstrip("/")
+        # Escape backslashes then quotes so a login cannot terminate the filter
+        # string or smuggle an operator into it (same guard as the name search).
+        safe = subject_login.replace("\\", "\\\\").replace('"', '\\"')
+        expression = f'profile.{self._manager_attribute} eq "{safe}"'
+
+        url = f"{org_url}/api/v1/users"
+        params: dict[str, str] | None = {"search": expression, "limit": str(MAX_SEARCH_RESULTS)}
+        reports: list[dict] = []
+        seen_urls: set[str] = set()
+
+        async with self._client() as client:
+            for _ in range(_MAX_PAGES):
+                if url in seen_urls:
+                    break  # self-referential `next`; stop rather than loop
+                seen_urls.add(url)
+
+                response = await client.get(url, headers=self._headers(), params=params)
+                params = None  # the `next` URL already carries the query
+
+                if response.status_code in (401, 403):
+                    raise RuntimeError(
+                        "Okta refused the direct-reports search. This API token may lack "
+                        "user read access across the directory, which is broader than "
+                        "reading a single known user."
+                    )
+                response.raise_for_status()
+
+                reports.extend(response.json())
+
+                next_url = response.links.get("next", {}).get("url")
+                if not next_url:
+                    break
+                url = next_url
+
+        return reports
+
     async def _call_factors_backend(self, okta_id: str) -> list[dict]:
         if self.mock_mode:
             return self._mock_factors_fixture()
@@ -859,6 +1271,39 @@ class OktaPlugin(ConnectorPlugin):
             },
         ]
 
+    #: Fixture memberships keyed by the mock okta ids below, chosen so the demo
+    #: matrix shows both shared rows (Everyone, Eng-GitHub) and drift rows
+    #: (VPN-Users, Okta-Admins, PagerDuty-OnCall) rather than a flat grid where
+    #: everyone matches -- the flat case is not the one the feature exists for.
+    _MOCK_TEAM_GROUPS = {
+        "00uMOCK0000000000000": ["Everyone", "Eng-GitHub", "VPN-Users", "Okta-Admins"],
+        "00uMOCKREPORT00000001": ["Everyone", "Eng-GitHub", "VPN-Users"],
+        "00uMOCKREPORT00000002": ["Everyone", "Eng-GitHub"],
+        "00uMOCKREPORT00000003": ["Everyone", "Eng-GitHub", "VPN-Users", "PagerDuty-OnCall"],
+    }
+
+    def _mock_groups_fixture(self, okta_id: str) -> list[dict]:
+        names = self._MOCK_TEAM_GROUPS.get(okta_id, ["Everyone", "Eng-GitHub"])
+        return [
+            {"id": f"00g{i}", "type": "OKTA_GROUP", "profile": {"name": name}}
+            for i, name in enumerate(names)
+        ]
+
+    def _mock_reports_fixture(self) -> list[dict]:
+        """Three direct reports for the mock manager, with distinct ids so the
+        fixture memberships above give each a different column."""
+        return [
+            {"id": "00uMOCKREPORT00000001", "status": "ACTIVE",
+             "profile": {"login": "arivera", "firstName": "Ana", "lastName": "Rivera",
+                         "email": "arivera@example.com"}},
+            {"id": "00uMOCKREPORT00000002", "status": "ACTIVE",
+             "profile": {"login": "dsingh", "firstName": "Dev", "lastName": "Singh",
+                         "email": "dsingh@example.com"}},
+            {"id": "00uMOCKREPORT00000003", "status": "ACTIVE",
+             "profile": {"login": "kobrien", "firstName": "Kit", "lastName": "O'Brien",
+                         "email": "kobrien@example.com"}},
+        ]
+
     # -- shaping --------------------------------------------------------------
 
     @staticmethod
@@ -883,6 +1328,30 @@ class OktaPlugin(ConnectorPlugin):
             # A hidden tile is still an assignment. Recorded rather than
             # filtered, so the CLI can say so instead of silently omitting it.
             "hidden": bool(entry.get("hidden")),
+        }
+
+    @staticmethod
+    def _to_group(entry: dict) -> dict:
+        profile = entry.get("profile") or {}
+        return {
+            "group_id": entry.get("id"),
+            # The display name is what an operator recognises and what the
+            # comparison lines members up by; the API's `type` (OKTA_GROUP /
+            # BUILT_IN / APP_GROUP) is kept because "Everyone" being BUILT_IN
+            # explains why it is shared by all.
+            "name": profile.get("name"),
+            "type": entry.get("type"),
+        }
+
+    @staticmethod
+    def _to_member(raw: dict, *, is_subject: bool) -> dict:
+        profile = raw.get("profile") or {}
+        names = [profile.get("firstName"), profile.get("lastName")]
+        return {
+            "okta_id": raw.get("id"),
+            "login": profile.get("login"),
+            "name": " ".join(part for part in names if part) or None,
+            "is_subject": is_subject,
         }
 
     @staticmethod
@@ -1015,6 +1484,29 @@ class OktaPlugin(ConnectorPlugin):
                 help="List authenticators (MFA factors) this user has enrolled, "
                 "including inactive ones.",
             ),
+            groups: bool = typer.Option(
+                False,
+                "--groups",
+                "-groups",
+                "-g",
+                help="List the Okta groups this user belongs to. Bundles with "
+                "the other sections (e.g. -sg, -sdaug).",
+            ),
+            team: bool = typer.Option(
+                False,
+                "--team",
+                help="Compare group memberships across this person's team "
+                "(them plus their direct reports) instead of looking one person "
+                "up. Long-only and composes with nothing -- it changes the whole "
+                "operation. Pair with --html to write the comparison as a page.",
+            ),
+            html_path: str = typer.Option(
+                "",
+                "--html",
+                metavar="PATH",
+                help="With --team, also write the comparison to PATH as a "
+                "standalone HTML page you can open in a browser.",
+            ),
             find: bool = typer.Option(
                 False,
                 "--find",
@@ -1056,7 +1548,8 @@ class OktaPlugin(ConnectorPlugin):
                     name
                     for name, on in (
                         ("--status", status), ("--devices", devices), ("--apps", apps),
-                        ("--authenticators", authenticators), ("--last-signin", last_signin),
+                        ("--authenticators", authenticators), ("--groups", groups),
+                        ("--team", team), ("--last-signin", last_signin),
                     )
                     if on
                 ]
@@ -1070,6 +1563,38 @@ class OktaPlugin(ConnectorPlugin):
                     raise typer.Exit(code=2)
                 _print_search(identifier, fetch_all=show_all)
                 return
+
+            # --team is a mode like --find: it replaces "describe one person"
+            # with "compare a team", so a section flag alongside it is the same
+            # silently-dropped-request failure and is rejected the same way.
+            if team:
+                conflicting = [
+                    name
+                    for name, on in (
+                        ("--status", status), ("--devices", devices), ("--apps", apps),
+                        ("--authenticators", authenticators), ("--groups", groups),
+                        ("--find", find), ("--all", show_all), ("--last-signin", last_signin),
+                    )
+                    if on
+                ]
+                if conflicting:
+                    console.print(
+                        f"[red]--team cannot be combined with[/red] {', '.join(conflicting)}[red].[/red]\n"
+                        "--team compares a whole team; the section flags describe one person."
+                    )
+                    raise typer.Exit(code=2)
+                _print_team(identifier, html_path=html_path or None)
+                return
+
+            # --html renders the team comparison; outside --team there is
+            # nothing to render, so accept it silently would leave someone
+            # believing they had asked for a file.
+            if html_path:
+                console.print(
+                    "[red]--html only applies to --team.[/red]\n"
+                    f"Did you mean: [bold]lookup-cli okta {identifier} --team --html {html_path}[/bold]?"
+                )
+                raise typer.Exit(code=2)
 
             if show_all:
                 # --all modifies the search; there is no search to modify.
@@ -1096,12 +1621,12 @@ class OktaPlugin(ConnectorPlugin):
 
             # Flags select sections. With none given, status is what people
             # want; `-d` alone means devices only.
-            show_status = status or not (devices or apps or authenticators)
+            show_status = status or not (devices or apps or authenticators or groups)
 
             # A section that is the *whole* answer must fail the command, so
             # scripts can trust the exit code. Alongside other sections a dead
             # endpoint degrades its own row instead of discarding good output.
-            sole_section = sum((show_status, devices, apps, authenticators)) == 1
+            sole_section = sum((show_status, devices, apps, authenticators, groups)) == 1
 
             result = asyncio.run(self.fetch(identifier))
             if not result.ok:
@@ -1134,6 +1659,101 @@ class OktaPlugin(ConnectorPlugin):
 
             if authenticators:
                 _print_authenticators(identifier, okta_id=okta_id, primary=sole_section)
+
+            if groups:
+                _print_groups(identifier, okta_id=okta_id, primary=sole_section)
+
+        def _print_groups(identifier: str, okta_id: str | None, primary: bool) -> None:
+            result = asyncio.run(self.fetch_groups(identifier, okta_id=okta_id))
+
+            if not result.ok:
+                console.print(f"[red]Groups unavailable:[/red] {result.error}")
+                if primary:
+                    raise typer.Exit(code=1)
+                return
+
+            if not result.data.get("found", True):
+                console.print(f"[yellow]No Okta account found for[/yellow] {identifier}")
+                return
+
+            found = result.data["groups"]
+            if not found:
+                console.print(f"[yellow]No Okta groups for[/yellow] {identifier}")
+                return
+
+            table = Table(title=f"Groups ({result.data['count']}) - {identifier}")
+            table.add_column("group")
+            table.add_column("type")
+            for group in found:
+                table.add_row(group["name"] or "-", group["type"] or "-")
+            console.print(table)
+
+        def _print_team(identifier: str, html_path: str | None) -> None:
+            """Render the team's group comparison, and optionally write it as HTML."""
+            result = asyncio.run(self.fetch_team_groups(identifier))
+
+            if not result.ok:
+                console.print(f"[red]Team comparison failed:[/red] {result.error}")
+                raise typer.Exit(code=1)
+
+            if not result.data.get("found"):
+                console.print(f"[yellow]No Okta account found for[/yellow] {identifier}")
+                console.print(
+                    f"[dim]Try:[/dim] [bold]lookup-cli okta --find {identifier}[/bold]"
+                    "[dim]   to search by name[/dim]"
+                )
+                return
+
+            members = result.data["members"]
+            rows = result.data["groups"]
+            summary = result.data["summary"]
+
+            table = Table(
+                title=f"Group comparison - team of {identifier} ({summary['member_count']} members)"
+            )
+            table.add_column("group")
+            for member in members:
+                label = member["login"] or "?"
+                if member["is_subject"]:
+                    label += " (mgr)"
+                if member["groups"] is None:
+                    label += " (n/a)"
+                table.add_column(label, no_wrap=True)
+
+            for row in rows:
+                tag = "  [all]" if row["everyone"] else ("  [drift]" if row["drift"] else "")
+                cells = [f"{row['name']}{tag}"]
+                for member in members:
+                    if member["groups"] is None:
+                        cells.append("?")
+                    else:
+                        cells.append("yes" if row["coverage"].get(member["login"]) else "-")
+                table.add_row(*cells)
+            console.print(table)
+
+            # One-line takeaway, so the answer to "does the team diverge" does
+            # not require reading every cell. Names the drift count explicitly.
+            console.print(
+                f"[dim]{summary['drift_count']} group(s) with drift, "
+                f"{summary['shared_by_all']} shared by all, "
+                f"across {summary['member_count']} members[/dim]"
+            )
+            if summary["error_count"]:
+                console.print(
+                    f"[yellow]{summary['error_count']} member(s) could not be read[/yellow] "
+                    "(shown as ?) and are excluded from the shared/drift counts."
+                )
+
+            if html_path:
+                try:
+                    Path(html_path).write_text(
+                        render_team_html(result.data, subject_login=result.data["subject"]),
+                        encoding="utf-8",
+                    )
+                except OSError as exc:
+                    console.print(f"[red]Could not write {html_path}:[/red] {safe_error(exc)}")
+                    raise typer.Exit(code=1)
+                console.print(f"[green]Wrote comparison to[/green] {html_path}")
 
         def _print_search(query: str, fetch_all: bool = False) -> None:
             """Candidate chooser for `--find`.
