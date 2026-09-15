@@ -295,6 +295,12 @@ _STATUS_NOTES: dict[str, tuple[str, str]] = {
 #: Decisions Log in docs/STAGES.md.
 DEFAULT_MANAGER_ATTRIBUTE = "managerId"
 
+#: Universal Directory attribute holding a person's hire/start date, used to
+#: order the team columns oldest-first in the HTML comparison. Org-specific
+#: like the manager attribute, so it is overridable; when absent on a member,
+#: `fetch_team` falls back to the Okta account `created` timestamp.
+DEFAULT_HIRE_DATE_ATTRIBUTE = "hireDate"
+
 
 def build_comparison(members: list[dict]) -> dict:
     """Line up several members' group memberships into a comparison matrix.
@@ -386,16 +392,14 @@ tbody tr:hover{background:var(--panel2)}
 .who{font-weight:600}.nm{font-size:12px;color:var(--soft)}
 .role{font-size:11px;color:var(--soft);font-family:var(--mono)}
 code{font-family:var(--mono);font-size:.9em}
-.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;margin-left:8px;white-space:nowrap}
-.tag.all{color:var(--ok);background:var(--ok-bg)}
-.tag.drift{color:var(--warn);background:var(--warn-bg)}
-.dot{width:14px;height:14px;border-radius:50%;display:inline-block}
-.yes{background:var(--accent)}
-.no{background:transparent;border:1.5px dashed var(--line2)}
-td.miss{background:var(--crit-bg)}td.miss .no{border-color:var(--crit)}
 td.na{color:var(--soft);font-family:var(--mono)}
-.legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;font-size:12.5px;color:var(--soft)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12.5px;color:var(--soft)}
 .legend span{display:inline-flex;align-items:center;gap:7px}
+.who.subj{color:var(--accent)}
+.cnt{font-family:var(--mono);font-size:11px;color:var(--soft);margin-left:6px;font-variant-numeric:tabular-nums}
+td.hit{color:#fff;font-weight:700}
+tr.divider th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--soft);background:var(--panel2);text-transform:uppercase}
+.chip{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;flex:0 0 auto}
 """
 
 
@@ -408,9 +412,31 @@ def _html_member_head(member: dict) -> str:
         role = "subject"
     else:
         role = "teammate"
+    who_class = "who subj" if member.get("is_subject") else "who"
     name = member.get("name")
     name_line = f'<div class="nm">{_escape(name)}</div>' if name else ""
-    return f'<div class="who">{login}</div>{name_line}<div class="role">{role}</div>'
+    return f'<div class="{who_class}">{login}</div>{name_line}<div class="role">{role}</div>'
+
+
+def _share_color(count: int, present_count: int) -> str:
+    """Heat-map fill for a group shared by `count` of `present_count` members.
+
+    A group everyone has is the calm baseline (green); the fewer people share
+    it, the hotter it runs (through amber to red), so individual/unique access
+    is what draws the eye. Returned as an `hsl()` string used inline, which
+    reads acceptably on both the light and dark grounds.
+    """
+    frac = count / present_count if present_count else 0
+    hue = int(round(150 * frac))  # 150 = green (all) -> 0 = red (rare)
+    return f"hsl({hue} 60% 44%)"
+
+
+def _share_label(count: int, present_count: int) -> str:
+    if count >= present_count:
+        return f"shared by all {present_count}"
+    if count == 1:
+        return "unique to 1 member"
+    return f"shared by {count}"
 
 
 def render_team_html(
@@ -430,39 +456,69 @@ def render_team_html(
     file a human then opens in a browser. The page embeds all of its CSS and
     uses no external resources so it works offline, straight from disk.
     """
-    members = comparison["members"]
     rows = comparison["groups"]
     summary = comparison["summary"]
+    present_count = summary["present_count"]
 
-    heads = "".join(f"<th>{_html_member_head(m)}</th>" for m in members)
+    # Columns run oldest hire date on the left; a member with no determinable
+    # date sorts last. ISO-ish date strings sort chronologically as text.
+    ordered_members = sorted(
+        comparison["members"],
+        key=lambda m: (m.get("hire_date") is None, m.get("hire_date") or ""),
+    )
+
+    # Rows run most-shared first, cooling down to the rare/unique groups at the
+    # bottom. Sorted here rather than in build_comparison so the terminal view
+    # (which uses build_comparison directly) keeps its own alphabetical order.
+    ordered_rows = sorted(rows, key=lambda r: (-r["count"], (r["name"] or "").lower()))
+
+    heads = "".join(f"<th>{_html_member_head(m)}</th>" for m in ordered_members)
 
     body_rows = []
-    for row in rows:
-        tag = ' <span class="tag all">all</span>' if row["everyone"] else (
-            ' <span class="tag drift">drift</span>' if row["drift"] else ""
-        )
+    divider_done = False
+    for row in ordered_rows:
+        count = row["count"]
+        # A one-off divider announcing the individual-access block, echoing the
+        # reference sheet. Only meaningful when there's more than one member.
+        if not divider_done and count == 1 and present_count > 1:
+            body_rows.append(
+                f'<tr class="divider"><th>── unique to one member ──</th>'
+                f'<td colspan="{len(ordered_members)}"></td></tr>'
+            )
+            divider_done = True
+
+        fill = _share_color(count, present_count)
         cells = []
-        for m in members:
+        for m in ordered_members:
             if m.get("groups") is None:
                 cells.append('<td class="na">?</td>')
                 continue
-            has = row["coverage"].get(m["login"], False)
-            if has:
-                cells.append('<td><span class="dot yes"></span></td>')
+            if row["coverage"].get(m["login"], False):
+                # Filled with the row's band colour + a check, so membership
+                # reads without relying on colour alone.
+                cells.append(f'<td class="hit" style="background:{fill}">&check;</td>')
             else:
-                # A gap in a drift row is the actionable case: highlight it.
-                klass = ' class="miss"' if row["drift"] else ""
-                cells.append(f'<td{klass}><span class="dot no"></span></td>')
+                cells.append("<td></td>")
         body_rows.append(
-            f'<tr><th>{_escape(row["name"])}{tag}</th>{"".join(cells)}</tr>'
+            f'<tr><th><span class="chip" style="background:{fill}"></span>'
+            f'{_escape(row["name"])}'
+            f'<span class="cnt">{count}/{present_count}</span></th>'
+            f'{"".join(cells)}</tr>'
         )
 
     matrix = (
         '<div class="scroll"><table><thead><tr>'
         f'<th class="grp">group</th>{heads}</tr></thead>'
         f'<tbody>{"".join(body_rows)}</tbody></table></div>'
-        if rows
+        if ordered_rows
         else '<p class="sub">No groups to compare.</p>'
+    )
+
+    # Legend: one swatch per share-count actually present, most-shared first.
+    legend_bands = "".join(
+        f'<span><span class="chip" style="background:{_share_color(c, present_count)}"></span>'
+        f'{_share_label(c, present_count)}</span>'
+        for c in sorted({r["count"] for r in ordered_rows}, reverse=True)
     )
 
     note = ""
@@ -470,7 +526,7 @@ def render_team_html(
         note = (
             f'<p class="sub">{summary["error_count"]} member(s) could not be '
             "read and are shown as <code>?</code> -- they are excluded from the "
-            "shared/drift counts.</p>"
+            "shared counts.</p>"
         )
 
     subject = _escape(subject_login)
@@ -492,9 +548,9 @@ def render_team_html(
 <div class="wrap">
   <p class="eyebrow">lookup-cli &middot; okta &middot; team group comparison</p>
   <h1>Group comparison &mdash; team of {subject}</h1>
-  <p class="sub">{whose} Every member's Okta group memberships are lined up so
-  gaps and extra access stand out. Rows tagged <b>drift</b> are where the team
-  diverges.</p>
+  <p class="sub">{whose} Columns run oldest hire date on the left; group rows
+  run from those shared by everyone down to individual access, shaded by how
+  many teammates share each one.</p>
   <div class="tiles">
     <div class="tile"><div class="n">{summary["member_count"]}</div><div class="l">team members</div></div>
     <div class="tile"><div class="n">{summary["group_count"]}</div><div class="l">distinct groups</div></div>
@@ -502,12 +558,7 @@ def render_team_html(
     <div class="tile warn"><div class="n">{summary["drift_count"]}</div><div class="l">groups with drift</div></div>
   </div>
   {matrix}
-  <div class="legend">
-    <span><span class="dot yes"></span> in group</span>
-    <span><span class="dot no"></span> not in group</span>
-    <span><span class="tag all">all</span> everyone has it</span>
-    <span><span class="tag drift">drift</span> partial coverage</span>
-  </div>
+  <div class="legend">{legend_bands}</div>
   {note}
 </div>
 </body>
@@ -526,6 +577,10 @@ class OktaPlugin(ConnectorPlugin):
     @property
     def _manager_attribute(self) -> str:
         return self.config.get("OKTA_MANAGER_ATTRIBUTE") or DEFAULT_MANAGER_ATTRIBUTE
+
+    @property
+    def _hire_date_attribute(self) -> str:
+        return self.config.get("OKTA_HIRE_DATE_ATTRIBUTE") or DEFAULT_HIRE_DATE_ATTRIBUTE
 
     async def fetch(self, identifier: str) -> ConnectorResult:
         try:
@@ -748,6 +803,7 @@ class OktaPlugin(ConnectorPlugin):
             )
 
         subject_id = subject_raw.get("id")
+        hire_attr = self._hire_date_attribute
         members: list[dict] = []
         seen: set = set()
         for raw in cohort_raw:
@@ -757,13 +813,15 @@ class OktaPlugin(ConnectorPlugin):
             if member_id in seen:
                 continue
             seen.add(member_id)
-            members.append(self._to_member(raw, is_subject=member_id == subject_id))
+            members.append(
+                self._to_member(raw, is_subject=member_id == subject_id, hire_attr=hire_attr)
+            )
 
         # The queried person is always in the comparison. In peer mode the
         # cohort search normally already includes them; in reports mode (they
         # are the manager) it never does, so add them here.
         if subject_id not in seen:
-            members.append(self._to_member(subject_raw, is_subject=True))
+            members.append(self._to_member(subject_raw, is_subject=True, hire_attr=hire_attr))
 
         # Subject first, then teammates alphabetically -- a stable order two
         # runs can be diffed against.
@@ -1260,6 +1318,7 @@ class OktaPlugin(ConnectorPlugin):
                 # path (compare against teammates who share this manager), which
                 # is the real behaviour, rather than the no-manager fallback.
                 DEFAULT_MANAGER_ATTRIBUTE: "mmanager",
+                DEFAULT_HIRE_DATE_ATTRIBUTE: "2024-03-15",
             },
         }
 
@@ -1360,13 +1419,13 @@ class OktaPlugin(ConnectorPlugin):
         return [
             {"id": "00uMOCKREPORT00000001", "status": "ACTIVE",
              "profile": {"login": "arivera", "firstName": "Ana", "lastName": "Rivera",
-                         "email": "arivera@example.com"}},
+                         "email": "arivera@example.com", "hireDate": "2023-06-01"}},
             {"id": "00uMOCKREPORT00000002", "status": "ACTIVE",
              "profile": {"login": "dsingh", "firstName": "Dev", "lastName": "Singh",
-                         "email": "dsingh@example.com"}},
+                         "email": "dsingh@example.com", "hireDate": "2025-02-20"}},
             {"id": "00uMOCKREPORT00000003", "status": "ACTIVE",
              "profile": {"login": "kobrien", "firstName": "Kit", "lastName": "O'Brien",
-                         "email": "kobrien@example.com"}},
+                         "email": "kobrien@example.com", "hireDate": "2026-01-10"}},
         ]
 
     # -- shaping --------------------------------------------------------------
@@ -1409,14 +1468,20 @@ class OktaPlugin(ConnectorPlugin):
         }
 
     @staticmethod
-    def _to_member(raw: dict, *, is_subject: bool) -> dict:
+    def _to_member(raw: dict, *, is_subject: bool, hire_attr: str) -> dict:
         profile = raw.get("profile") or {}
         names = [profile.get("firstName"), profile.get("lastName")]
+        # Hire date orders the columns oldest-first in the HTML. The custom
+        # attribute is preferred; Okta's account `created` is a reasonable
+        # proxy when a person's hire date isn't populated, so ordering still
+        # works. Left as None (sorts last) only when neither exists.
+        hire_date = profile.get(hire_attr) or raw.get("created")
         return {
             "okta_id": raw.get("id"),
             "login": profile.get("login"),
             "name": " ".join(part for part in names if part) or None,
             "is_subject": is_subject,
+            "hire_date": hire_date,
         }
 
     @staticmethod

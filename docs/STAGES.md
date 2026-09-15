@@ -119,7 +119,7 @@ behavior is exercised by at least one real plugin in Stage 2.
 ---
 
 ## Stage 2 -- Okta Connector (real API, credentials available)
-**Status: mocks green** -- `pytest -m okta` 326 passed, 2026-09-15 (was 208
+**Status: mocks green** -- `pytest -m okta` 332 passed, 2026-09-15 (was 208
 on 2026-09-02; the `-g` groups section and the `--team` group-comparison view
 with `--html` export were added since). The unchecked tasks are all
 live-org confirmations blocked on a real token in `.env`: the manual smoke
@@ -284,11 +284,18 @@ Notes from the implementation:
   concurrently (`asyncio.gather` — the payoff of `fetch()` being async) and
   lined up into a matrix flagging *drift* rows (some-but-not-all coverage).
   `--html PATH` writes the same comparison as a self-contained page (all CSS
-  inlined, no external resources; every directory value HTML-escaped). One
-  member's failed groups call degrades that column to `?` and is excluded from
-  the drift maths rather than sinking the run; a failure building the roster
-  is a hard error. The one remaining org-specific unknown is what the manager
-  attribute holds (login/email/id) — see the Open Decisions Log.
+  inlined, no external resources; every directory value HTML-escaped). In that
+  page, **columns are ordered oldest hire date first** (read from
+  `OKTA_HIRE_DATE_ATTRIBUTE`, default `hireDate`, falling back to the account
+  `created` date; unknown dates sort last) and **group rows are ordered
+  shared-by-all first down to individual access, shaded as a prevalence heat
+  map** with a legend — modelled on the reference sheet. (The terminal view is
+  deliberately left as the plainer yes/– table.) One member's failed groups
+  call degrades that column to `?` and is excluded from the maths rather than
+  sinking the run; a failure building the roster is a hard error. Two
+  org-specific unknowns remain — what the manager attribute holds
+  (login/email/id) and whether `hireDate` is populated — both configurable;
+  see the Open Decisions Log.
 - **`-a` lists applications** via `GET /api/v1/users/{userId}/appLinks`, the
   same list that builds the user's Okta dashboard.
   - **It answers "what can they open", not "how were they granted it".**

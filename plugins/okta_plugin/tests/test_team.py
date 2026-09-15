@@ -51,12 +51,23 @@ def _plugin(config: PluginConfig = CONFIG) -> OktaPlugin:
 
 
 def _user(
-    login: str, okta_id: str, first: str, last: str, manager: str | None = None
+    login: str,
+    okta_id: str,
+    first: str,
+    last: str,
+    manager: str | None = None,
+    hire: str | None = None,
+    created: str | None = None,
 ) -> dict:
     profile = {"login": login, "email": f"{login}@example.com", "firstName": first, "lastName": last}
     if manager is not None:
         profile["managerId"] = manager
-    return {"id": okta_id, "status": "ACTIVE", "profile": profile}
+    if hire is not None:
+        profile["hireDate"] = hire
+    user = {"id": okta_id, "status": "ACTIVE", "profile": profile}
+    if created is not None:
+        user["created"] = created
+    return user
 
 
 def _group(name: str, group_id: str) -> dict:
@@ -256,6 +267,46 @@ async def test_manager_attribute_is_configurable():
     assert 'profile.managerEmail eq "boss@example.com"' in sent
 
 
+# --- hire date -----------------------------------------------------------------
+
+
+@respx.mock
+async def test_members_carry_hire_date_preferring_attribute_then_created():
+    """Hire date comes from the profile attribute, falling back to the Okta
+    account `created` date so column ordering still works when it's unset."""
+    subject = _user("jchen", SUBJECT_ID, "Jules", "Chen", manager="bigboss", hire="2021-03-01")
+    respx.get(f"{USERS_URL}/jchen").mock(return_value=httpx.Response(200, json=subject))
+    _mock_cohort(
+        subject,
+        # No hireDate, but an account created date -> used as the fallback.
+        _user("arivera", R1_ID, "Ana", "Rivera", manager="bigboss", created="2019-01-01T00:00:00.000Z"),
+    )
+
+    result = await _plugin().fetch_team("jchen")
+
+    by_login = {m["login"]: m for m in result.data["members"]}
+    assert by_login["jchen"]["hire_date"] == "2021-03-01"
+    assert by_login["arivera"]["hire_date"] == "2019-01-01T00:00:00.000Z"
+
+
+@respx.mock
+async def test_hire_date_attribute_is_configurable():
+    config = PluginConfig(
+        {"OKTA_ORG_URL": ORG_URL, "OKTA_API_TOKEN": "x", "OKTA_HIRE_DATE_ATTRIBUTE": "startDate"}
+    )
+    subject = {
+        "id": SUBJECT_ID,
+        "status": "ACTIVE",
+        "profile": {"login": "jchen", "managerId": "bigboss", "startDate": "2022-07-07"},
+    }
+    respx.get(f"{USERS_URL}/jchen").mock(return_value=httpx.Response(200, json=subject))
+    _mock_cohort(subject)
+
+    result = await _plugin(config).fetch_team("jchen")
+
+    assert result.data["members"][0]["hire_date"] == "2022-07-07"
+
+
 # --- fetch_team_groups: the orchestration -------------------------------------
 
 
@@ -392,6 +443,54 @@ def test_render_team_html_escapes_the_manager_reference():
     )
 
     assert "<script>alert(3)</script>" not in html
+
+
+def _dated_member(login: str, hire: str | None, groups, is_subject: bool = False) -> dict:
+    return {"login": login, "name": login.title(), "is_subject": is_subject,
+            "hire_date": hire, "groups": groups, "error": None}
+
+
+def _heatmap_comparison() -> dict:
+    return build_comparison(
+        [
+            _dated_member("aold", "2020-01-01", ["Everyone", "Rare"], is_subject=True),
+            _dated_member("bmid", "2023-01-01", ["Everyone"]),
+            _dated_member("cnew", "2025-01-01", ["Everyone"]),
+            _dated_member("dunk", None, ["Everyone"]),  # unknown hire date
+        ]
+    )
+
+
+def test_render_team_html_orders_columns_oldest_hire_date_first():
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    # Column headers appear left-to-right in document order: oldest first,
+    # unknown-date member last.
+    assert html.index("aold") < html.index("bmid") < html.index("cnew") < html.index("dunk")
+
+
+def test_render_team_html_orders_rows_most_shared_first():
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    # 'Everyone' (all four) sits above 'Rare' (only one).
+    assert html.index(">Everyone<") < html.index(">Rare<")
+
+
+def test_render_team_html_has_a_prevalence_legend_and_band_colours():
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    assert "shared by all 4" in html
+    assert "unique to 1 member" in html
+    # Rows are shaded by an inline heat-map colour.
+    assert "hsl(" in html
+    # The individual-access divider from the reference sheet.
+    assert "unique to one member" in html
+
+
+def test_render_team_html_accents_the_subject_column():
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    assert "who subj" in html
 
 
 def test_render_team_html_marks_an_unreadable_member():
