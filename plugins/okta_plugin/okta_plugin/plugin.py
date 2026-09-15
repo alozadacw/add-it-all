@@ -405,9 +405,18 @@ tr.divider th{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:
 """
 
 
+def _short_login(login: str | None) -> str:
+    """Drop the `@domain` from a login for display.
+
+    Everyone on a team shares the domain, so it is pure width -- redundant in
+    the column headers and the heading. The full login stays in the data.
+    """
+    return (login or "?").split("@", 1)[0]
+
+
 def _html_member_head(member: dict) -> str:
     """Column header for one member: login, display name, and a role/state note."""
-    login = _escape(member.get("login") or "?")
+    login = _escape(_short_login(member.get("login")))
     if member.get("groups") is None:
         role = "unavailable"
     elif member.get("is_subject"):
@@ -554,9 +563,12 @@ def render_team_html(
         )
     note = f'<p class="sub">{" ".join(notes)}</p>' if notes else ""
 
-    subject = _escape(subject_login)
+    subject = _escape(_short_login(subject_login))
     if cohort == "peers" and manager:
-        whose = f"Everyone who reports to <b>{_escape(manager)}</b> &mdash; {subject} and their teammates."
+        whose = (
+            f"Everyone who reports to <b>{_escape(_short_login(manager))}</b> "
+            f"&mdash; {subject} and their teammates."
+        )
     elif cohort == "reports":
         whose = f"{subject} has no manager on file, so this compares their own direct reports."
     else:

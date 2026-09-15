@@ -560,6 +560,21 @@ def test_render_team_html_accents_the_subject_column():
     assert html.count("subjcol") > 1
 
 
+def test_render_team_html_strips_the_email_domain_from_column_headers():
+    """The shared @domain only widens columns, so it's dropped for display."""
+    comparison = build_comparison(
+        [
+            {"login": "ext_alozada@coreweave.com", "name": "A L", "is_subject": True,
+             "hire_date": "2024-01-01", "groups": ["Everyone"], "error": None},
+        ]
+    )
+
+    html = render_team_html(comparison, subject_login="ext_alozada@coreweave.com")
+
+    assert ">ext_alozada<" in html
+    assert "@coreweave.com" not in html
+
+
 def test_render_team_html_shows_each_members_hire_date():
     html = render_team_html(_heatmap_comparison(), subject_login="aold")
 
