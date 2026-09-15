@@ -381,10 +381,14 @@ h1{font-size:20px;margin:0 0 6px;letter-spacing:-.01em}
 .tile .n{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
 .tile .l{font-size:11px;color:var(--soft);margin-top:2px}
 .tile.warn{border-color:var(--warn);background:var(--warn-bg)}.tile.warn .n{color:var(--warn)}
-.scroll{overflow-x:auto;width:100%;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+/* Cap the height so the body scrolls inside the box; that is what lets the
+   header row below stay frozen (position:sticky needs a scrolling ancestor). */
+.scroll{overflow:auto;width:100%;max-height:calc(100vh - 240px);border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 table{border-collapse:collapse;width:100%}
 th,td{text-align:center;padding:6px 10px;border-bottom:1px solid var(--line)}
-thead th{position:sticky;top:0;background:var(--panel2);border-bottom:1px solid var(--line2);vertical-align:bottom;font-size:11.5px}
+/* Frozen header row. box-shadow (not just border) draws the bottom edge,
+   which border-collapse otherwise drops from a sticky cell as it scrolls. */
+thead th{position:sticky;top:0;z-index:2;background:var(--panel2);border-bottom:1px solid var(--line2);box-shadow:inset 0 -1px var(--line2);vertical-align:bottom;font-size:11.5px}
 th.grp{text-align:left;min-width:210px}
 tbody th{text-align:left;font-family:var(--mono);font-size:11.5px;font-weight:500;border-left:0}
 td{border-left:1px solid var(--line)}

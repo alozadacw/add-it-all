@@ -560,6 +560,15 @@ def test_render_team_html_accents_the_subject_column():
     assert html.count("subjcol") > 1
 
 
+def test_render_team_html_freezes_the_header_row():
+    """The member header row stays put while scrolling many group rows: the
+    table body scrolls inside a height-capped box with a sticky thead."""
+    html = render_team_html(_heatmap_comparison(), subject_login="aold")
+
+    assert "position:sticky" in html
+    assert "max-height:calc(100vh" in html
+
+
 def test_render_team_html_strips_the_email_domain_from_column_headers():
     """The shared @domain only widens columns, so it's dropped for display."""
     comparison = build_comparison(
