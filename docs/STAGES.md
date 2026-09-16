@@ -119,9 +119,12 @@ behavior is exercised by at least one real plugin in Stage 2.
 ---
 
 ## Stage 2 -- Okta Connector (real API, credentials available)
-**Status: mocks green** -- `pytest -m okta` 208 passed, 2026-09-02. The
-manual smoke test against the real org is still outstanding (blocked on a
-real token in `.env`) and is now the **only** unchecked task in this stage.
+**Status: mocks green** -- `pytest -m okta` 339 passed, 2026-09-15 (was 208
+on 2026-09-02; the `-g` groups section and the `--team` group-comparison view
+with `--html` export were added since). The unchecked tasks are all
+live-org confirmations blocked on a real token in `.env`: the manual smoke
+test, `--find` returning DEPROVISIONED users, and how `managerId` keys direct
+reports.
 
 | Task | Depends on |
 |---|---|
@@ -141,6 +144,9 @@ real token in `.env`) and is now the **only** unchecked task in this stage.
 | [x] `--find` — resolve a partial name to a username (long-only, not chainable) | plugin implemented |
 | [x] `--find` multi-token narrowing + `--all` to see past the display cap | `--find` |
 | [ ] **Verify `--find` returns DEPROVISIONED users against the real org** | a real token in `.env` |
+| [x] `-g`/`-groups`/`--groups` — a user's Okta group memberships (`/users/{id}/groups`) | plugin implemented |
+| [x] `--team` — compare group memberships across a person's manager cohort (peers), `--html` writes a page | groups; `--find` shape |
+| [ ] **Confirm what `managerId` holds against the real org** (login/email/id — keys the cohort search; see Open Decisions Log) | a real token in `.env` |
 
 Notes from the implementation:
 
@@ -261,10 +267,38 @@ Notes from the implementation:
     the username is exactly the situation in which you also would not know
     the flag exists.
 - **Flag convention:** short flags are section selectors (`-s`, `-d`, `-a`,
-  `-u`); long-only flags modify how a section renders (`--last-signin`,
-  `--since`). Keeps `-sdau` meaning "four sections" and leaves `-g`/`-l` free
-  for future ones. Spelling rules are in the CLI shape note at the top of this
-  file — read them before adding a flag to another stage.
+  `-u`, `-g`); long-only flags either modify how a section renders
+  (`--last-signin`, `--since`, `--html`) or are *mode* flags that replace the
+  whole operation (`--find`, `--team`). `-sdaug` now means "five sections";
+  `-l` remains free. Spelling rules are in the CLI shape note at the top of
+  this file — read them before adding a flag to another stage.
+- **`-g` lists group memberships** via `GET /api/v1/users/{userId}/groups`,
+  and is the per-person building block `--team` fans out over.
+- **`--team` compares a team's group memberships.** The subject is *not*
+  assumed to be a manager: the connector reads the subject's own manager from
+  `profile.<managerAttr>` and gathers everyone who reports to that manager
+  (the subject + their peers), so looking up an IC compares them against their
+  teammates and looking up a manager compares them against their peer
+  managers. A subject with no manager on file falls back to comparing their
+  own direct reports (`cohort="reports"`). Each member's groups are fetched
+  concurrently (`asyncio.gather` — the payoff of `fetch()` being async) and
+  lined up into a matrix flagging *drift* rows (some-but-not-all coverage).
+  `--html PATH` writes the same comparison as a self-contained page (all CSS
+  inlined, no external resources; every directory value HTML-escaped). In that
+  page, **columns are ordered oldest hire date first** (read from
+  `OKTA_HIRE_DATE_ATTRIBUTE`, default `hireDate`, falling back to the account
+  `created` date; unknown dates sort last) and **group rows are ordered
+  shared-by-all first down to individual access, shaded as a prevalence heat
+  map** with a legend — modelled on the reference sheet. (The terminal view is
+  deliberately left as the plainer yes/– table.) **Deactivated
+  (`DEPROVISIONED`) teammates are excluded by default** — the queried subject
+  is always kept — and `--include-deactivated` opts them back in for an
+  offboarding audit; the count excluded is surfaced in both the terminal and
+  the page. One member's failed groups call degrades that column to `?` and is
+  excluded from the maths rather than sinking the run; a failure building the
+  roster is a hard error. Two org-specific unknowns remain — what the manager
+  attribute holds (login/email/id) and whether `hireDate` is populated — both
+  configurable; see the Open Decisions Log.
 - **`-a` lists applications** via `GET /api/v1/users/{userId}/appLinks`, the
   same list that builds the user's Okta dashboard.
   - **It answers "what can they open", not "how were they granted it".**
@@ -664,6 +698,42 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       `/apps/{appId}/users/{userId}` call per app. If offboarding needs to
       know *which group to remove someone from*, add it behind its own opt-in
       flag (same reasoning as `--last-signin`), never automatically.
+- [x] ~~What "team" means (reports vs. peers) for Okta `--team`~~ **Resolved
+      2026-09-15: peers (the subject's manager cohort).** `okta <user> --team`
+      reads the subject's own manager from `profile.<managerAttr>` and compares
+      everyone who reports to that manager — the subject and their peers — so
+      the result is the same whether the queried user is a manager or an IC
+      (an IC is compared to their teammates; a manager to their peer managers).
+      A subject with no manager on file falls back to comparing their own
+      direct reports, tagged `cohort="reports"`, so a top-of-tree lookup still
+      answers something. The earlier direct-reports-only reading assumed the
+      subject was always the manager, which is wrong for the common case of
+      looking up a teammate.
+- [ ] **How the manager link is keyed (Okta `--team`).** The cohort is found
+      via `GET /users?search=profile.<attr> eq "<managerRef>"`, where
+      `<attr>` is `OKTA_MANAGER_ATTRIBUTE` (default `managerId`) and
+      `<managerRef>` is whatever that attribute holds on the subject's profile.
+      Whether `managerId` holds the manager's login, email or employee id is a
+      per-org Universal Directory decision the mocks cannot prove; if the value
+      it holds is not what other users' `managerId` is compared against, the
+      cohort comes back as just the subject. The attribute is configurable,
+      but confirm the org's schema in the Stage 2 live smoke test before
+      relying on the roster. Group memberships come from `GET /users/{id}/
+      groups`, also new and exercised by the `-g` section.
+- [x] ~~Whether `--team` should include deactivated teammates~~ **Resolved
+      2026-09-15: exclude by default, `--include-deactivated` opts in.** The
+      comparison answers "who currently has access", so a `DEPROVISIONED`
+      teammate is dropped (and the count surfaced) rather than shown as a
+      column of gaps. The queried subject is never dropped — looking up a
+      leaver to check their own access was revoked is a legitimate use — and
+      `--include-deactivated` restores everyone for an offboarding audit. The
+      filter is **client-side**, so the default holds regardless of API
+      behaviour; but note Okta's List Users endpoint is documented to exclude
+      `DEPROVISIONED` by default (same caveat as `--find`), so
+      `--include-deactivated` will only actually surface leavers if the search
+      returns them — unverified against a real org, flag for the live smoke
+      test. SUSPENDED/LOCKED_OUT are *not* filtered: those are active accounts
+      that are merely blocked, not deactivated.
 - [ ] **Authenticators and devices are not joined.** An Okta Verify push
       factor and an Okta device registry entry can refer to the same phone,
       but the factor `profile.name` and the device `displayName` are only
