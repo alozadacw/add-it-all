@@ -453,9 +453,9 @@ the live instance, not from documentation:
 ---
 
 ## Stage 4 -- Jamf Connector (mock-first; credentials pending)
-**Status: mocks green** -- `pytest -m jamf` 54 passed, 2026-09-21. The real
-API client is written against Jamf Pro's documented shape but is **not yet
-verified against a live instance** -- `JAMF_*` in `.env` are still empty.
+**Status: verified against the live instance** 2026-09-21 -- `pytest -m jamf`
+64 passed, plus a real run of every flag against Jamf Pro 11.32.0
+(3,461 computers, 65 mobile devices). Auth is a read-only API Client.
 
 | Task | Depends on |
 |---|---|
@@ -464,7 +464,7 @@ verified against a live instance** -- `JAMF_*` in `.env` are still empty.
 | [x] Implement `jamf_plugin` package with `ADD_IT_ALL_MOCK_JAMF` toggle | tests, fixtures |
 | [x] `add-it-all jamf <user>` with `-d/--devices` and `-m/--mobile` | plugin implemented |
 | [x] Implement the real `_call_*_backend` (Jamf Pro API, OAuth2 client credentials) | -- |
-| [ ] **Verify against a live instance** | credentials in `.env` |
+| [x] **Verify against a live instance** | credentials in `.env` |
 
 Notes from the implementation:
 
@@ -506,6 +506,34 @@ Notes from the implementation:
   because the serial identifies the machine uniquely; it stays in `data`.
   The first 80-column test only asserted the serial survived, which was not
   enough to catch it -- it now also asserts nothing is truncated mid-word.
+- **Four things the mocks got wrong, all found only by going live.** This
+  connector is the clearest argument yet for verifying against a real
+  instance: the mock suite was 54 tests green while three of these would
+  have shipped broken.
+  - **The inventory field is `reportDate`, not `lastReportDate`.** The
+    latter is the name you would guess and the one the fixtures used, so
+    every test passed while the column would have been permanently empty.
+  - **Tokens live 59 seconds here, not the ~20 minutes the docs imply.**
+    The original code cached for the life of the process, which would have
+    handed a dead token to the second section of a `-dm` lookup. Now
+    tracked with an expiry and refreshed 10s early, since a 59-second token
+    can otherwise die between the check and the request it authorises.
+  - **Mobile records are section-nested like computers, not flat.** The
+    first shaper read `name`, `serialNumber`, `model` at the top level and
+    got nothing but the id. They live at `general.displayName`,
+    `hardware.serialNumber`, `hardware.model`. `hardware` and
+    `userAndLocation` also come back **null unless requested**, so the
+    section params are load-bearing rather than an optimisation.
+  - **The two endpoints filter on different fields.** Computers take
+    `userAndLocation.username`; mobile rejects that outright with
+    `INVALID_FIELD` and accepts only flat `username`. Not a guess -- the
+    400 body lists what it will take.
+- **Usernames here are email addresses** (`someone@example.com`), so
+  `jamf dluo` finds nothing and `jamf dluo@example.com` works. Worth
+  knowing before assuming the connector is broken.
+- **A 400 is turned into an actionable message.** Jamf's raw error echoes
+  the entire request URL and explains nothing; its own `description` field
+  is the useful part and is surfaced instead.
 - **The entry-point guard earned itself again.** Creating the package
   directory before installing it produced an immediate, named failure
   ("declared in pyproject.toml but not discovered at runtime: ['jamf']")

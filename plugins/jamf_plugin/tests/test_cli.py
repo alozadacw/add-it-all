@@ -62,10 +62,17 @@ def _computer(name="Jane's MacBook Pro", serial="C02XYZ123ABC", managed=True):
 
 
 def _mobile():
-    return {"mobileDeviceId": "55", "name": "Jane's iPhone", "serialNumber": "F2LXYZ",
-            "model": "iPhone 15 Pro", "osVersion": "18.2", "managed": True,
-            "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z",
-            "userAndLocation": {"username": "jdoe"}}
+    """Section-nested, as the live endpoint actually returns. A flat fixture
+    here is what let the mobile shaper read every field from the wrong place
+    while the whole suite stayed green."""
+    return {
+        "mobileDeviceId": "55",
+        "general": {"displayName": "Jane's iPhone", "osVersion": "18.2", "managed": True,
+                    "lastContactDate": "2026-09-19T12:00:00.000Z",
+                    "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z"},
+        "hardware": {"serialNumber": "F2LXYZ", "model": "iPhone 15 Pro"},
+        "userAndLocation": {"username": "jdoe", "emailAddress": "jdoe@example.com"},
+    }
 
 
 def _mock(computers=None, mobiles=None):

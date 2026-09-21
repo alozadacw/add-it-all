@@ -18,13 +18,18 @@ minutes. The token is fetched once per plugin instance and reused, so a
 lookup showing both computers and mobile devices pays for one exchange
 rather than two.
 
-**`lastContactTime` and `lastReportDate` are different things** and are
+**`lastContactTime` and `reportDate` are different things** and are
 never conflated here. The first is when the device last checked in; the
 second is when it last submitted a full inventory. A machine can check in
 daily while its inventory is months stale, so collapsing them into "last
 seen" would answer a question nobody asked -- the same trap as Okta's
 device `lastUpdated`, which is why both are carried under their own names
 and rendered as separate columns.
+
+Note the inventory field is `reportDate`, **not** `lastReportDate`. The
+latter is the name you would guess, the mocks originally used it, and every
+test passed while the column would have been permanently empty against a
+real instance. Verified live 2026-09-21.
 
 Required env vars (see `.env.example`):
     JAMF_BASE_URL       e.g. https://your-org.jamfcloud.com
@@ -38,6 +43,7 @@ Optional:
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
 import typer
@@ -55,17 +61,30 @@ DEFAULT_TIMEOUT_SECONDS = 10.0
 #: cache, so only what is rendered is asked for.
 _COMPUTER_SECTIONS = ("GENERAL", "HARDWARE", "OPERATING_SYSTEM", "USER_AND_LOCATION")
 
+#: Mobile records are section-nested exactly like computers, and `hardware`
+#: and `userAndLocation` come back null unless requested -- so serial, model
+#: and the assigned user are all silently absent without this.
+_MOBILE_SECTIONS = ("GENERAL", "HARDWARE", "USER_AND_LOCATION")
+
 #: Jamf caps page size; the fleet is filtered to one user server-side so this
 #: is generous rather than tuned.
 PAGE_SIZE = 200
 
+#: Re-exchange this many seconds before a token's stated expiry. Tokens here
+#: live 59 seconds, so the margin is a meaningful fraction of the lifetime
+#: rather than a rounding error.
+TOKEN_REFRESH_MARGIN_SECONDS = 10
 
-def build_user_filter(identifier: str) -> str:
+
+def build_user_filter(identifier: str, field: str = "userAndLocation.username") -> str:
     """RSQL filter selecting one user's devices.
 
-    Filtering server-side matters: a Jamf inventory runs to thousands of
-    machines, and pulling the fleet to show one person's laptop would be
-    slow and rude to the instance.
+    Filtering server-side matters: this instance holds 3,461 computers, and
+    pulling the fleet to show one person's laptop would be slow and rude.
+
+    `field` differs by endpoint, which is not a guess -- the mobile endpoint
+    rejects `userAndLocation.username` with INVALID_FIELD and accepts only
+    flat `username`, while computers want the dotted path.
     """
     cleaned = (identifier or "").strip()
     if not cleaned:
@@ -73,7 +92,7 @@ def build_user_filter(identifier: str) -> str:
     # Escape backslashes then quotes so a name cannot terminate the RSQL
     # string or inject another clause.
     safe = cleaned.replace("\\", "\\\\").replace('"', '\\"')
-    return f'userAndLocation.username=="{safe}"'
+    return f'{field}=="{safe}"'
 
 
 class JamfPlugin(ConnectorPlugin):
@@ -82,10 +101,12 @@ class JamfPlugin(ConnectorPlugin):
 
     def __init__(self, config=None):
         super().__init__(config)
-        #: Cached for the life of this instance. Jamf tokens last ~20
-        #: minutes; a single CLI run is far shorter, so one exchange is
-        #: enough however many sections are shown.
+        #: Cached with its expiry. Do NOT assume a long life: this instance
+        #: issues tokens with `expires_in: 59` (verified 2026-09-21), not the
+        #: ~20 minutes the docs imply. Caching for the life of the process
+        #: would hand a dead token to the second section of a `-dm` lookup.
         self._token: str | None = None
+        self._token_expires_at: float = 0.0
 
     async def fetch(self, identifier: str) -> ConnectorResult:
         """Computers assigned to `identifier`. Never raises for ordinary failures."""
@@ -96,12 +117,15 @@ class JamfPlugin(ConnectorPlugin):
     async def fetch_mobile_devices(self, identifier: str) -> ConnectorResult:
         """Phones and tablets assigned to `identifier`."""
         return await self._fetch_devices(
-            identifier, self._call_mobile_backend, self._to_mobile_device
+            identifier, self._call_mobile_backend, self._to_mobile_device,
+            filter_field="username",
         )
 
-    async def _fetch_devices(self, identifier, backend, shaper) -> ConnectorResult:
+    async def _fetch_devices(
+        self, identifier, backend, shaper, filter_field="userAndLocation.username"
+    ) -> ConnectorResult:
         try:
-            raw = await backend(build_user_filter(identifier))
+            raw = await backend(build_user_filter(identifier, filter_field))
         except ValueError as exc:
             return ConnectorResult(plugin_name=self.name, identifier=identifier, error=str(exc))
         except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation
@@ -122,7 +146,11 @@ class JamfPlugin(ConnectorPlugin):
     # -- backend seam ---------------------------------------------------------
 
     async def _access_token(self, client: httpx.AsyncClient) -> str:
-        if self._token is not None:
+        # Refresh a little before the deadline rather than after it: a
+        # 59-second token can otherwise die between the check and the
+        # request it authorises, surfacing as a random 401 on the second
+        # section rather than anything diagnosable.
+        if self._token is not None and time.monotonic() < self._token_expires_at:
             return self._token
 
         response = await client.post(
@@ -141,7 +169,10 @@ class JamfPlugin(ConnectorPlugin):
                 "Settings > API Roles and Clients."
             )
         response.raise_for_status()
-        self._token = response.json()["access_token"]
+        body = response.json()
+        self._token = body["access_token"]
+        lifetime = float(body.get("expires_in") or 0)
+        self._token_expires_at = time.monotonic() + max(lifetime - TOKEN_REFRESH_MARGIN_SECONDS, 0)
         return self._token
 
     async def _call_computers_backend(self, user_filter: str) -> list[dict]:
@@ -157,6 +188,7 @@ class JamfPlugin(ConnectorPlugin):
             return self._mock_mobile_fixture()
 
         params = [("filter", user_filter), ("page-size", str(PAGE_SIZE))]
+        params += [("section", section) for section in _MOBILE_SECTIONS]
         return await self._get_inventory("/api/v2/mobile-devices/detail", params, "mobile devices")
 
     async def _get_inventory(self, path: str, params: list, what: str) -> list[dict]:
@@ -174,6 +206,21 @@ class JamfPlugin(ConnectorPlugin):
                 f"Jamf refused the {what} query. The API Role attached to this client "
                 f"likely lacks Read privileges for {what}."
             )
+        if response.status_code == 400:
+            # Typically INVALID_FIELD on the filter. The raw httpx message
+            # echoes the entire URL and explains nothing; Jamf's own
+            # description is the useful part.
+            detail = ""
+            try:
+                errors = response.json().get("errors") or []
+                detail = (errors[0] or {}).get("description", "")
+            except Exception:  # noqa: BLE001 - a malformed body must not mask the 400
+                pass
+            raise RuntimeError(
+                f"Jamf rejected the {what} filter. {detail} "
+                "This is a bug in how the query is built, not something a different "
+                "username will fix."
+            )
         response.raise_for_status()
         return response.json().get("results") or []
 
@@ -188,7 +235,7 @@ class JamfPlugin(ConnectorPlugin):
         return [{
             "id": "101",
             "general": {"name": "Mock MacBook Pro", "lastContactTime": "2026-09-20T08:15:00.000Z",
-                        "lastReportDate": "2026-09-19T03:00:00.000Z",
+                        "reportDate": "2026-09-19T03:00:00.000Z",
                         "remoteManagement": {"managed": True}},
             "hardware": {"serialNumber": "C02MOCK00001",
                          "model": "MacBook Pro (16-inch, 2021)"},
@@ -197,10 +244,15 @@ class JamfPlugin(ConnectorPlugin):
         }]
 
     def _mock_mobile_fixture(self) -> list[dict]:
+        # Section-nested, matching what the live endpoint returns. A flat
+        # fixture is what let the original mobile shaper pass every test
+        # while reading every field from the wrong place.
         return [{
-            "mobileDeviceId": "55", "name": "Mock iPhone", "serialNumber": "F2LMOCK0001",
-            "model": "iPhone 15 Pro", "osVersion": "18.2", "managed": True,
-            "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z",
+            "mobileDeviceId": "55",
+            "general": {"displayName": "Mock iPhone", "osVersion": "18.2", "managed": True,
+                        "lastContactDate": "2026-09-19T12:00:00.000Z",
+                        "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z"},
+            "hardware": {"serialNumber": "F2LMOCK0001", "model": "iPhone 15 Pro"},
             "userAndLocation": {"username": "jdoe"},
         }]
 
@@ -229,25 +281,33 @@ class JamfPlugin(ConnectorPlugin):
             "managed": bool((general.get("remoteManagement") or {}).get("managed")),
             # Two different questions; see the module docstring.
             "last_check_in": (general.get("lastContactTime") or "")[:10] or None,
-            "last_inventory": (general.get("lastReportDate") or "")[:10] or None,
+            # `reportDate`, NOT `lastReportDate`. Verified against a live
+            # instance 2026-09-21: the documented-looking name is not what
+            # the GENERAL section sends, and the mocks had agreed with the
+            # wrong one.
+            "last_inventory": (general.get("reportDate") or "")[:10] or None,
             "assigned_to": user.get("username"),
         }
 
     @staticmethod
     def _to_mobile_device(entry: dict) -> dict:
+        """Mobile records are section-nested like computers, and use their
+        own field names: `general.displayName` not `name`,
+        `general.lastContactDate` not `lastContactTime`. Verified live
+        2026-09-21 -- the first implementation read a flat object and got
+        nothing but the id."""
+        general = entry.get("general") or {}
+        hardware = entry.get("hardware") or {}
         user = entry.get("userAndLocation") or {}
         return {
             "device_id": entry.get("mobileDeviceId"),
-            "name": entry.get("name"),
-            "serial_number": entry.get("serialNumber"),
-            "model": entry.get("model"),
-            "os": entry.get("osVersion"),
-            "managed": bool(entry.get("managed")),
-            # Mobile records expose only an inventory timestamp, not a
-            # separate check-in. Left as None rather than reusing the
-            # inventory date, which would imply a check-in we cannot see.
-            "last_check_in": None,
-            "last_inventory": (entry.get("lastInventoryUpdateDate") or "")[:10] or None,
+            "name": general.get("displayName"),
+            "serial_number": hardware.get("serialNumber"),
+            "model": hardware.get("model"),
+            "os": general.get("osVersion"),
+            "managed": bool(general.get("managed")),
+            "last_check_in": (general.get("lastContactDate") or "")[:10] or None,
+            "last_inventory": (general.get("lastInventoryUpdateDate") or "")[:10] or None,
             "assigned_to": user.get("username"),
         }
 

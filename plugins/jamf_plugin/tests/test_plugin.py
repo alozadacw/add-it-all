@@ -65,7 +65,7 @@ def _computer(
         "general": {
             "name": name,
             "lastContactTime": last_contact,
-            "lastReportDate": last_report,
+            "reportDate": last_report,
             "remoteManagement": {"managed": managed},
             "supervised": True,
         },
@@ -187,6 +187,102 @@ async def test_the_client_secret_never_appears_in_an_error():
     result = await _plugin(config).fetch("jdoe")
 
     assert secret not in result.error
+
+
+# --- Field names verified against a live instance -----------------------------
+
+
+@respx.mock
+async def test_the_inventory_date_uses_the_field_jamf_actually_sends():
+    """Live check 2026-09-21: the GENERAL section sends `reportDate`, not
+    `lastReportDate`. The mock fixtures had the documented-looking name, so
+    every test passed while the column would have been permanently "-"
+    against a real instance."""
+    _mock_token()
+    respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([{
+        "id": "1",
+        "general": {"name": "Mac", "lastContactTime": "2026-09-21T17:34:00.000Z",
+                    "reportDate": "2026-09-21T17:31:00.000Z",
+                    "remoteManagement": {"managed": True}},
+    }])))
+
+    device = (await _plugin().fetch("jdoe")).data["devices"][0]
+
+    assert device["last_inventory"] == "2026-09-21"
+    assert device["last_check_in"] == "2026-09-21"
+
+
+@respx.mock
+async def test_a_record_without_an_inventory_date_renders_as_absent():
+    _mock_token()
+    respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([{
+        "id": "1", "general": {"name": "Mac", "remoteManagement": {"managed": True}}}])))
+
+    device = (await _plugin().fetch("jdoe")).data["devices"][0]
+
+    assert device["last_inventory"] is None
+
+
+# --- Token lifetime -------------------------------------------------------------
+
+
+@respx.mock
+async def test_an_expired_token_is_re_exchanged(monkeypatch):
+    """Live check 2026-09-21: this instance issues tokens with
+    `expires_in: 59`, not the ~20 minutes the docs imply. Caching for the
+    life of the process would hand a dead token to the second call."""
+    import jamf_plugin.plugin as mod
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(mod.time, "monotonic", lambda: clock["t"])
+    token = respx.post(TOKEN_URL).mock(
+        return_value=httpx.Response(200, json=_token(expires_in=59)))
+    respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    plugin = _plugin()
+    await plugin.fetch("jdoe")
+    clock["t"] += 120                      # token has expired
+    await plugin.fetch("jdoe")
+
+    assert token.call_count == 2, "a stale token must be re-exchanged"
+
+
+@respx.mock
+async def test_a_live_token_is_reused(monkeypatch):
+    import jamf_plugin.plugin as mod
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(mod.time, "monotonic", lambda: clock["t"])
+    token = respx.post(TOKEN_URL).mock(
+        return_value=httpx.Response(200, json=_token(expires_in=1200)))
+    respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    plugin = _plugin()
+    await plugin.fetch("jdoe")
+    clock["t"] += 5
+    await plugin.fetch("jdoe")
+
+    assert token.call_count == 1
+
+
+@respx.mock
+async def test_a_token_close_to_expiry_is_refreshed_early(monkeypatch):
+    """A 59-second token can die mid-request. Refreshing only once it is
+    already dead would surface as a random 401 on the second section."""
+    import jamf_plugin.plugin as mod
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(mod.time, "monotonic", lambda: clock["t"])
+    token = respx.post(TOKEN_URL).mock(
+        return_value=httpx.Response(200, json=_token(expires_in=59)))
+    respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    plugin = _plugin()
+    await plugin.fetch("jdoe")
+    clock["t"] += 55                       # inside the safety margin, not yet expired
+    await plugin.fetch("jdoe")
+
+    assert token.call_count == 2
 
 
 # --- Computers ------------------------------------------------------------------
@@ -367,19 +463,32 @@ async def test_mobile_devices_are_a_separate_call():
     assert computers.called
 
 
+def _mobile_record():
+    """The shape the live endpoint actually returns.
+
+    Verified 2026-09-21. Section-nested exactly like a computer record, NOT
+    the flat object the first implementation assumed -- every field except
+    the id was being read from the wrong place, and the mocks agreed with
+    the mistake.
+    """
+    return {
+        "mobileDeviceId": "55",
+        "general": {
+            "displayName": "Jane's iPhone",
+            "osVersion": "18.2",
+            "managed": True,
+            "lastContactDate": "2026-09-19T12:00:00.000Z",
+            "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z",
+        },
+        "hardware": {"serialNumber": "F2LXYZ", "model": "iPhone 15 Pro"},
+        "userAndLocation": {"username": "jdoe", "emailAddress": "jdoe@example.com"},
+    }
+
+
 @respx.mock
 async def test_mobile_devices_are_returned_normalised():
     _mock_token()
-    respx.get(MOBILE_URL).mock(return_value=httpx.Response(200, json=_page([{
-        "mobileDeviceId": "55",
-        "name": "Jane's iPhone",
-        "serialNumber": "F2LXYZ",
-        "model": "iPhone 15 Pro",
-        "osVersion": "18.2",
-        "managed": True,
-        "lastInventoryUpdateDate": "2026-09-18T10:00:00.000Z",
-        "userAndLocation": {"username": "jdoe"},
-    }])))
+    respx.get(MOBILE_URL).mock(return_value=httpx.Response(200, json=_page([_mobile_record()])))
 
     result = await _plugin().fetch_mobile_devices("jdoe")
 
@@ -388,6 +497,65 @@ async def test_mobile_devices_are_returned_normalised():
     assert device["name"] == "Jane's iPhone"
     assert device["serial_number"] == "F2LXYZ"
     assert device["model"] == "iPhone 15 Pro"
+    assert device["os"] == "18.2"
+    assert device["managed"] is True
+    assert device["assigned_to"] == "jdoe"
+
+
+@respx.mock
+async def test_mobile_dates_come_from_their_own_fields():
+    """`lastContactDate` here, not `lastContactTime` as on computers."""
+    _mock_token()
+    respx.get(MOBILE_URL).mock(return_value=httpx.Response(200, json=_page([_mobile_record()])))
+
+    device = (await _plugin().fetch_mobile_devices("jdoe")).data["devices"][0]
+
+    assert device["last_check_in"] == "2026-09-19"
+    assert device["last_inventory"] == "2026-09-18"
+
+
+@respx.mock
+async def test_mobile_sections_must_be_requested_or_the_record_is_hollow():
+    """Live: `hardware` and `userAndLocation` come back null unless asked
+    for, so serial, model and the assigned user were all silently absent."""
+    _mock_token()
+    route = respx.get(MOBILE_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await _plugin().fetch_mobile_devices("jdoe")
+
+    requested = {v for k, v in route.calls.last.request.url.params.multi_items() if k == "section"}
+    assert {"GENERAL", "HARDWARE", "USER_AND_LOCATION"} <= requested
+
+
+@respx.mock
+async def test_mobile_filters_on_the_flat_username_field():
+    """The mobile endpoint rejects `userAndLocation.username` outright with
+    INVALID_FIELD -- it only accepts flat `username`. Computers want the
+    dotted path. The two endpoints genuinely differ."""
+    _mock_token()
+    route = respx.get(MOBILE_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await _plugin().fetch_mobile_devices("jdoe")
+
+    f = route.calls.last.request.url.params["filter"]
+    assert f == 'username=="jdoe"'
+    assert "userAndLocation" not in f
+
+
+@respx.mock
+async def test_a_rejected_filter_field_is_an_actionable_error():
+    """Jamf answers 400 INVALID_FIELD. The raw httpx message leaks the whole
+    URL and says nothing useful."""
+    _mock_token()
+    respx.get(MOBILE_URL).mock(return_value=httpx.Response(400, json={
+        "httpStatus": 400,
+        "errors": [{"code": "INVALID_FIELD", "description": "Cannot filter by field [x]"}]}))
+
+    result = await _plugin().fetch_mobile_devices("jdoe")
+
+    assert not result.ok
+    assert "filter" in result.error.lower()
+    assert "https://" not in result.error, "must not echo the raw URL back"
 
 
 # --- Personal data ------------------------------------------------------------------
@@ -421,6 +589,21 @@ async def test_mock_mode_works_with_no_credentials():
     assert result.ok
     assert result.data["devices"]
     assert result.data["devices"][0]["serial_number"]
+
+
+async def test_mock_mode_populates_the_same_fields_the_real_api_does():
+    """The mock fixture drifting from the real payload is how the
+    `lastReportDate` bug survived: every test passed against a fixture that
+    used a field name the API does not send. A fixture that cannot produce
+    a populated inventory date is not standing in for anything."""
+    plugin = JamfPlugin(PluginConfig({"ADD_IT_ALL_MOCK_JAMF": "1"}))
+
+    device = (await plugin.fetch("jdoe")).data["devices"][0]
+
+    assert device["last_check_in"], "mock must populate check-in"
+    assert device["last_inventory"], "mock must populate inventory date"
+    assert device["serial_number"]
+    assert device["os"]
 
 
 async def test_mock_mode_covers_mobile_devices_too():
