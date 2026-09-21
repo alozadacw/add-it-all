@@ -6,7 +6,7 @@ under that stage's `pytest` marker. Copy tasks into GitHub Issues (or
 your tracker of choice) 1:1 -- the checkboxes here double as a
 lightweight board if you'd rather not stand up tooling yet.
 
-Suggested labels: `stage:0`..`stage:8`, `plugin:okta`/`jira`/`jamf`/`abm`/`allwhere`,
+Suggested labels: `stage:0`..`stage:8`, `plugin:okta`/`jira`/`jamf`/`allwhere`,
 `type:test`, `type:impl`, `type:docs`.
 
 Legend: **[ ]** not started **[~]** in progress **[x]** done
@@ -111,7 +111,7 @@ no test exercises `Settings` yet (see task below).
 | [x] Write tests for `Settings` config loader | Settings | Done 2026-08-25 -- `tests/unit/config/test_settings.py`, `config.py` 0% -> 100%. Covers defaults, env-var override, `.env` fallback, env-beats-`.env` precedence, `Path` coercion, validation failure, and that unprefixed service creds (`OKTA_*`/`JIRA_*`) are ignored rather than absorbed. Note for future tests: `Settings` reads `.env` relative to **cwd**, so any test touching it must `chdir` to a tmp dir or it silently picks up the repo's real `.env` |
 | [x] Cache retention: expiry must delete, not just hide | Cache | Done 2026-08-25. `get()` past TTL previously returned `None` but left the row on disk forever -- the cache holds employee PII (status, serials, ticket history) in plaintext. `get()` now deletes on expiry; added `purge_expired()` and `clear()`, plus `lookup-cli cache path\|clear\|purge`. DB is created `0600` inside a `0700` directory |
 | [x] Fix `~` not being expanded in `cache_db_path` | Settings | Found 2026-08-25 while smoke-testing `lookup-cli cache path`. `.env.example` ships `LOOKUP_CLI_CACHE_DB_PATH=~/.lookup-cli/cache.sqlite3`; pydantic coerced that to `Path("~/...")` verbatim, so the cache was created at `./~/.lookup-cli/cache.sqlite3` — a plaintext store of employee PII **inside the git checkout** rather than in `$HOME`. Latent since Stage 1; nothing called `get_settings()` until now. Fixed with a `field_validator` calling `.expanduser()` |
-| [ ] Decide & document per-plugin default TTLs (Okta status probably shorter than, say, ABM device assignment) | none yet -- open decision | add to `docs/ARCHITECTURE.md` once decided |
+| [ ] Decide & document per-plugin default TTLs (Okta status probably shorter than, say, Jamf device assignment) | none yet -- open decision | add to `docs/ARCHITECTURE.md` once decided |
 
 **Stage 1 is done when:** `pytest -m cache` passes, and cache/model
 behavior is exercised by at least one real plugin in Stage 2.
@@ -339,7 +339,7 @@ Notes from the implementation:
   JSON consumers.
   - **Scope caveat to keep repeating to users:** this is Okta's own device
     registry (Okta Verify / device trust), *not* hardware inventory. Someone can
-    hold a laptop Okta has never seen. Jamf (Stage 4) and ABM (Stage 5) are the
+    hold a laptop Okta has never seen. Jamf (Stage 4) is the
     authoritative inventory sources, and once they exist the three views will
     disagree — that disagreement is itself useful for offboarding, but the CLI
     should never present Okta's list as "the devices this person has".
@@ -466,19 +466,26 @@ separate, low-risk follow-up task once creds land.
 
 ---
 
-## Stage 5 -- ABM Connector (mock-first, no credentials yet)
+## Stage 5 -- ABM Connector -- **DROPPED (2026-09-09)**
 
-| Task | Depends on |
-|---|---|
-| [ ] **Decision needed:** confirm ABM auth path -- Apple's official Business Manager API (server-to-server, JWT via private key) vs. going through your MDM vendor's ABM proxy endpoints. This changes the real client's shape; doesn't block mock work. | -- |
-| [ ] Write tests against fixture data: devices found, zero devices | Stage 0 |
-| [ ] Build realistic fixture JSON (device serial, model, enrollment status, MDM server assignment) | -- |
-| [ ] Implement `abm_plugin` package with `LOOKUP_CLI_MOCK_ABM` toggle | tests, fixtures |
-| [ ] `lookup-cli abm <user>` command with `-d/--devices` (see the CLI shape note at the top of this file) | plugin implemented |
+Removed from scope. Apple Business Manager does not tie in usefully to what
+this tool answers: its value is purchase/enrollment provenance for Apple
+hardware, and the questions this CLI actually gets asked -- who has what
+access, is it still active, who owns it -- are already answered by Okta
+(device trust), Jamf (managed inventory, Stage 4) and CAIRO (vendor and
+application approval). ABM would have added a third partially-overlapping
+device view whose disagreements with the other two would be noise rather
+than signal.
 
-**Done when:** `pytest -m abm` green against fixtures. Flag the auth
-decision above to whoever owns Apple/MDM vendor relationship before
-starting the real-API follow-up.
+Nothing was built, so nothing was removed beyond planning: there is no
+`abm_plugin` package, no tests and no marker. The stage number is left in
+place rather than renumbering 6-8, so existing `stage:N` labels and links
+keep pointing at the same things.
+
+**If it comes back:** the unresolved question was the auth path -- Apple's
+Business Manager API (server-to-server, JWT via private key) versus going
+through the MDM vendor's ABM proxy endpoints. That choice determines the
+client's shape and should be settled before any code.
 
 ---
 
@@ -581,7 +588,7 @@ Notes from the implementation:
 every discovered plugin:
 
 ```
-okta, jira, jamf, abm, allwhere
+okta, jira, jamf, allwhere
 ```
 
 **CAIRO is deliberately excluded.** It is keyed on a vendor/application
@@ -623,7 +630,6 @@ the relevant stage can finish, so it doesn't get lost in a task list:
 
 - [ ] Per-plugin cache TTLs (Stage 1)
 - [ ] Jira: reporter vs. assignee for "tickets submitted" (Stage 3)
-- [ ] ABM auth path: Apple direct API vs. MDM vendor proxy (Stage 5)
 - [x] ~~`fetch()` sync vs. async~~ **Resolved 2026-08-25: async.** Done before
       the first real connector, while the cost was one template plugin rather
       than five. `ConnectorPlugin.fetch()` is `async def`; Stage 7 will gather
@@ -770,6 +776,27 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       third connector needs it, that is the signal to extract — a
       `lookup_cli.chooser` helper taking rows plus column labels. Two copies
       is cheaper than the wrong abstraction; three is not.
+- [x] ~~Okta uses a personal read-only API token rather than a service
+      account (Stage 2)~~ **Resolved 2026-09-09:** swapped to a read-only
+      service account. Verified it still reaches every endpoint the
+      connector uses -- including the two most likely to be withheld from a
+      restricted role, `/api/v1/logs` (`--last-signin`) and directory-wide
+      `?search=` (`--find`). Both 200.
+- [x] ~~Does Okta's `search=` inherit the List Users default that excludes
+      DEPROVISIONED users?~~ **Resolved 2026-09-09: no, it includes them.**
+      Verified against the live org by finding a known deprovisioned user
+      and confirming a name search returns them. `--find` is therefore safe
+      for offboarding, and `build_search_expression()` correctly sends no
+      status clause. This was the load-bearing unknown behind `--find`.
+- [x] ~~Do Okta log events populate `device.id`?~~ **Resolved 2026-09-09:
+      yes** -- 61 of 200 sign-in events in a 90-day window carried one, so
+      `--last-signin` populates rather than being honestly empty.
+- [ ] **Okta device registry holds duplicate entries.** The live org returns
+      the same device name more than once (re-enrolments), and Android
+      devices report no serial, so `-d` rows can be hard to tell apart. The
+      CLI shows them verbatim, which is correct, but it is worth raising
+      with whoever owns Okta device trust -- same class as the duplicate
+      vendor records in CAIRO.
 - [ ] Which stage marker cross-cutting core utilities belong to.
       `test_redaction.py` was filed under `plugin_framework` because error
       handling is part of the plugin contract in `base.py`, but it is not

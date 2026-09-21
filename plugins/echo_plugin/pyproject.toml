@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lookup-cli-echo-plugin"
 version = "0.1.0"
-description = "Template connector plugin for lookup-cli. Copy this package to build a new service connector (Jamf, ABM, allwhere, or anything else)."
+description = "Template connector plugin for lookup-cli. Copy this package to build a new service connector (Jamf, allwhere, or anything else)."
 requires-python = ">=3.11"
 dependencies = ["lookup-cli"]
 

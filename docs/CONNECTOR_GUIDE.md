@@ -1,6 +1,6 @@
 # Adding a new connector plugin
 
-Follow this for Jamf/ABM/allwhere, and for any future service. This
+Follow this for Jamf/allwhere, and for any future service. This
 project is TDD: write the test file before the implementation file for
 every step below that produces code.
 
@@ -195,7 +195,7 @@ lookup-cli <service> <identifier> [flags]
 ## 9. Document service-specific env vars
 
 Add them to `.env.example` with a comment, following the existing
-pattern for Okta/Jira/Jamf/ABM/allwhere.
+pattern for Okta/Jira/Jamf/allwhere.
 
 ---
 

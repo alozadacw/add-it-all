@@ -35,7 +35,7 @@ Then:
 1. **Fill in `.env`** (bootstrap creates it from `.env.example` if absent)
    with real `OKTA_ORG_URL` / `OKTA_API_TOKEN` and `JIRA_BASE_URL` /
    `JIRA_EMAIL` / `JIRA_API_TOKEN` (both services already have
-   credentials per `docs/STAGES.md`). Leave the Jamf/ABM/allwhere
+   credentials per `docs/STAGES.md`). Leave the Jamf/allwhere
    `LOOKUP_CLI_MOCK_*=1` flags as-is — no credentials for those yet.
 2. **Resolve or triage the Open Decisions Log** at the bottom of
    `docs/STAGES.md` before starting Stage 2-3 implementation work —
@@ -49,8 +49,7 @@ Then:
      can't tell configured from unconfigured
 
    The rest can wait: per-plugin TTLs, Jira `reporter` vs. `assignee`
-   (blocks Stage 3 only), ABM auth path (blocks the real-API follow-up,
-   not Stage 5's mock work), and whether per-plugin CLI subcommands stay
+   (blocks Stage 3 only), and whether per-plugin CLI subcommands stay
    centralized in `cli.py`.
 3. **Only after the above**, pick up the next unchecked task in
    `docs/STAGES.md` (Stage 2, Okta, is next — real credentials are
@@ -92,7 +91,7 @@ Two more things worth knowing:
 
 A Python CLI (`lookup-cli`) that gathers data about a subject across
 several services and aggregates it into one record. Most connectors are
-person-scoped — Okta, Jira, Jamf, ABM, allwhere all take a username and
+person-scoped — Okta, Jira, Jamf, allwhere all take a username and
 return that person's status/assets. **Not all are:** CAIRO takes a vendor
 or application name. Don't assume `identifier` means "a person" when
 adding a connector (that assumption was baked into the old
@@ -161,7 +160,7 @@ pip install -e ".[dev]"
 pip install -e plugins/echo_plugin        # and any other plugin packages
 pytest -m plugin_framework                # Stage 0
 pytest -m cache                           # Stage 1
-pytest -m okta / jira / jamf / abm / allwhere / cli   # per-stage/plugin
+pytest -m okta / jira / jamf / allwhere / cli        # per-stage/plugin
 pytest --cov=src/lookup_cli               # full suite with coverage
 lookup-cli plugins list
 lookup-cli cache path|clear|purge         # local PII cache: inspect / empty
@@ -241,11 +240,11 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
   no noun subcommands, and flags bundle (`-sdau`). Read the CLI shape note
   at the top of `docs/STAGES.md` before adding a stage's CLI: it covers the
   three-spellings-per-section rule and the two ways a flag name can silently
-  misparse. **Outstanding: the manual smoke test against the real org**,
-  blocked on a real `OKTA_API_TOKEN` in `.env` — it is now the only
-  unchecked Stage 2 task.
+  misparse. **Live smoke test passed 2026-09-09** against a read-only service
+  account: every flag, plus confirmation that `--find` returns
+  DEPROVISIONED users and `--last-signin` populates. Stage 2 is complete.
   Note `-d` shows Okta's *device registry* (Okta Verify / device trust),
-  not hardware inventory — Jamf/ABM are the authoritative sources and will
+  not hardware inventory — Jamf is the authoritative source and will
   legitimately disagree.
 - CAIRO (TPRM vendor/application register): **verified against the live
   API** 2026-09-04 — `pytest -m cairo` 50 passed, plus a real smoke test of
@@ -265,13 +264,14 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
 - Stages 3-8: not started. Both contract decisions (async `fetch()`,
   injected `PluginConfig`) are resolved and implemented, so Jira (Stage 3)
   is a straight copy of the Okta shape.
-- Okta credentials: currently a **personal read-only API token**, not a
-  service account (decided 2026-08-25 to unblock development). Okta SSWS
-  tokens act as their creating user and expire after ~30 days of
-  inactivity — swap to a dedicated service account before this goes to
-  more than one operator. Tracked in the Open Decisions Log.
-- Okta and Jira have real credentials available now; Jamf, ABM, and
-  allwhere are mock-first until credentials are provisioned.
+- Okta credentials: a **read-only service account** as of 2026-09-09
+  (previously a personal token). Verified it reaches every endpoint the
+  connector uses, including `/api/v1/logs` and directory-wide `?search=`,
+  which a restricted role can withhold. Jira likewise uses a service
+  account. Note Okta SSWS tokens still expire after ~30 days of inactivity.
+- Okta, Jira and CAIRO have real credentials now; Jamf and allwhere are
+  mock-first until credentials are provisioned. ABM was dropped from scope
+  2026-09-09 -- see `docs/STAGES.md`.
 
 ## When picking up a task from docs/STAGES.md
 

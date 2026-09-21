@@ -159,7 +159,7 @@ def test_mock_mode_is_false_by_default():
 
 
 def test_a_mock_mode_plugin_counts_as_configured_without_credentials():
-    """Jamf/ABM/allwhere run mock-first, with no credentials provisioned."""
+    """Jamf/allwhere run mock-first, with no credentials provisioned."""
     plugin = _FakePlugin(PluginConfig({"LOOKUP_CLI_MOCK_FAKE": "1"}))
     assert plugin.configured is True
 

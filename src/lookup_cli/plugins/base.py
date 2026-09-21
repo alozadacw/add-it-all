@@ -1,7 +1,7 @@
 """
 The plugin contract.
 
-Every connector (Okta, Jira, Jamf, ABM, allwhere, or any future service)
+Every connector (Okta, Jira, Jamf, allwhere, or any future service)
 implements `ConnectorPlugin` and returns a `ConnectorResult`. The core
 CLI, cache, and aggregation logic depend ONLY on this interface -- never
 on any specific service's API shape. This is what makes new connectors
@@ -72,7 +72,7 @@ class ConnectorPlugin(ABC):
         """Whether this plugin should serve fixtures instead of calling out.
 
         Follows the `LOOKUP_CLI_MOCK_<PLUGIN>` convention already used in
-        `.env.example`, so Jamf/ABM/allwhere can be built before their
+        `.env.example`, so Jamf/allwhere can be built before their
         credentials exist.
         """
         return self.config.flag(f"LOOKUP_CLI_MOCK_{self.name.upper()}")

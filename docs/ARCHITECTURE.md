@@ -20,7 +20,7 @@ Aggregator  --uses-->  Cache (SQLite, per plugin+identifier, TTL)
 Plugin Registry (entry_points discovery)
    |
    v
-ConnectorPlugin implementations (Okta, Jira, Jamf, ABM, allwhere, ...)
+ConnectorPlugin implementations (Okta, Jira, Jamf, allwhere, ...)
 ```
 
 ### Plugin contract (`src/lookup_cli/plugins/base.py`)
@@ -90,7 +90,7 @@ Each real connector plugin owns a `_call_backend`-style seam (see
 implementation can stand in for the real HTTP client via an env var
 (`LOOKUP_CLI_MOCK_<PLUGIN>=1`) without changing the plugin's public
 `fetch()` contract, its tests, or anything upstream of it. This is how
-Jamf/ABM/allwhere get built *before* credentials exist.
+Jamf/allwhere get built *before* credentials exist.
 
 ## Non-goals for v1
 

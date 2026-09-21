@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lookup-cli"
 version = "0.1.0"
-description = "Unified identity/asset lookup CLI across Okta, Jira, Jamf, ABM, allwhere, and future services"
+description = "Unified identity/asset lookup CLI across Okta, Jira, Jamf, allwhere, and future services"
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
@@ -59,7 +59,6 @@ markers = [
     "okta: Stage 2 - Okta connector",
     "jira: Stage 3 - Jira connector",
     "jamf: Stage 4 - Jamf connector",
-    "abm: Stage 5 - ABM connector",
     "allwhere: Stage 6 - allwhere connector",
     "cairo: CAIRO (TPRM) vendor/application connector",
     "cli: Stage 7 - aggregation CLI",

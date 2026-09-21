@@ -2,7 +2,7 @@
 Stage 2: devices assigned to a user in Okta (`lookup-cli okta <user> -d`).
 
 Scope note: this is Okta's device registry (Okta Verify / device trust),
-NOT the Jamf/ABM hardware inventory that Stages 4-5 will add. A user can
+NOT the Jamf hardware inventory that Stage 4 will add. A user can
 own a laptop that Okta has never seen.
 
 All HTTP is mocked. Every credential here is obviously fake.

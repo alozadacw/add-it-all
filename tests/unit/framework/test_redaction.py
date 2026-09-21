@@ -75,7 +75,7 @@ def test_url_userinfo_credentials_are_redacted():
 
 def test_jwt_is_redacted():
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqZG9lIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1g"
-    scrubbed = safe_error(f"ABM auth failed with assertion {jwt}")
+    scrubbed = safe_error(f"auth failed with assertion {jwt}")
     assert jwt not in scrubbed
 
 
@@ -97,10 +97,10 @@ def test_short_env_values_are_not_redacted(monkeypatch):
 
 
 def test_path_valued_vars_are_not_treated_as_secrets(monkeypatch):
-    """ABM_PRIVATE_KEY_PATH points at a key; it is not itself a secret."""
-    monkeypatch.setenv("ABM_PRIVATE_KEY_PATH", "/Users/dluo/keys/abm.pem")
-    scrubbed = safe_error("could not read /Users/dluo/keys/abm.pem")
-    assert "/Users/dluo/keys/abm.pem" in scrubbed
+    """A _PATH var points at a key; it is not itself a secret."""
+    monkeypatch.setenv("VENDOR_PRIVATE_KEY_PATH", "/tmp/keys/vendor.pem")
+    scrubbed = safe_error("could not read /tmp/keys/vendor.pem")
+    assert "/tmp/keys/vendor.pem" in scrubbed
 
 
 def test_non_secret_env_vars_are_left_alone(monkeypatch):

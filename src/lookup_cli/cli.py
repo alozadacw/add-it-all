@@ -25,7 +25,7 @@ def build_app(plugins: dict | None = None) -> typer.Typer:
     used by tests.
     """
     application = typer.Typer(
-        help="Unified lookup across Okta, Jira, Jamf, ABM, allwhere, and more."
+        help="Unified lookup across Okta, Jira, Jamf, allwhere, and more."
     )
     application.add_typer(plugins_app, name="plugins")
     application.add_typer(cache_app, name="cache")

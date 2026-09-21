@@ -15,8 +15,8 @@ indistinguishable from "Okta was unreachable".
 devices Okta associates with a user, via
 `GET /api/v1/users/{userId}/devices`. Scope caveat worth repeating to
 users: this is Okta's own device registry -- machines enrolled through
-Okta Verify / device trust -- and NOT the Jamf or ABM hardware inventory
-that Stages 4-5 will add. Someone can hold a laptop that Okta has never
+Okta Verify / device trust -- and NOT the Jamf hardware inventory that
+Stage 4 will add. Someone can hold a laptop that Okta has never
 seen. It is deliberately a separate call, not part of `fetch()`, because
 Stage 7 runs `fetch()` for every plugin on every lookup and shouldn't pay
 for a second round trip nobody asked for.
@@ -1657,7 +1657,7 @@ class OktaPlugin(ConnectorPlugin):
                 "--devices",
                 "-d",
                 help="List devices registered to this user in Okta "
-                "(Okta Verify / device trust -- not the Jamf or ABM inventory).",
+                "(Okta Verify / device trust -- not the Jamf inventory).",
             ),
             apps: bool = typer.Option(
                 False,

@@ -1,7 +1,7 @@
 # lookup-cli
 
 Unified, plugin-based CLI for looking up a person's identity/asset footprint
-across Okta, Jira, Jamf, ABM (Apple Business Manager), and allwhere -- with
+across Okta, Jira, Jamf, CAIRO, and allwhere -- with
 room to add more services without touching core code.
 
 ```
@@ -48,7 +48,7 @@ If a check fails, fix it rather than working around it — a failure there
 means the scaffold itself is broken, not your machine.
 
 Then fill in real credentials in `.env` (Okta and Jira have credentials
-available today; Jamf, ABM, and allwhere stay on their `LOOKUP_CLI_MOCK_*=1`
+available today; Jamf and allwhere stay on their `LOOKUP_CLI_MOCK_*=1`
 flags until creds are provisioned) and pick up the next unchecked task in
 [`docs/STAGES.md`](docs/STAGES.md).
 

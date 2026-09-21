@@ -35,7 +35,7 @@ _SECRET_NAME_RE = re.compile(
 )
 
 #: ...except these suffixes, which name a location or identity rather than a
-#: secret. `ABM_PRIVATE_KEY_PATH` is a filesystem path worth keeping visible
+#: secret. A var like `VENDOR_PRIVATE_KEY_PATH` names a filesystem path worth keeping visible
 #: in a "could not read" error.
 _SECRET_NAME_EXCEPTIONS_RE = re.compile(r"(?i)_(path|file|filename|dir|url|uri|id|name|email)$")
 
@@ -59,7 +59,7 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         r"\1" + REDACTED,
     ),
-    # A bare JWT (ABM's server-to-server assertion, among others).
+    # A bare JWT (server-to-server assertions, among others).
     (
         re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),
         REDACTED,

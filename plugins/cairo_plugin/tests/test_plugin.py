@@ -112,7 +112,7 @@ def _plugin(config: PluginConfig = CONFIG) -> CairoPlugin:
 #
 # CAIRO is deliberately NOT part of the Stage 7 person aggregate. Per the
 # decision of 2026-09-04 that exclusion lives in the aggregate command's
-# explicit plugin list (okta, jira, jamf, abm, allwhere), NOT as a flag on
+# explicit plugin list (okta, jira, jamf, allwhere), NOT as a flag on
 # the plugin -- so adding this connector required no change to core. The
 # reason it matters: `lookup-cli lookup dluo` fanning out here would search
 # for a *vendor named dluo* and report nothing found, which is a silent

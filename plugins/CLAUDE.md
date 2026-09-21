@@ -3,7 +3,7 @@
 You're working inside a connector plugin package. Scope rules for this directory:
 
 - Each subdirectory here (`echo_plugin/`, and eventually `okta_plugin/`,
-  `jira_plugin/`, `jamf_plugin/`, `abm_plugin/`, `allwhere_plugin/`) is
+  `jira_plugin/`, `jamf_plugin/`, `allwhere_plugin/`) is
   its own independently installable Python package with its own
   `pyproject.toml` and its own `tests/`.
 - Never import across plugin packages. Never import from one plugin

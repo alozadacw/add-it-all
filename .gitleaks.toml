@@ -14,7 +14,7 @@ useDefault = true
 description = "Synthetic credential fixtures in the redaction tests"
 regexes = [
   # The canonical jwt.io example token, used to prove safe_error() strips a
-  # bearer assertion of the shape ABM's server-to-server auth produces.
+  # bearer assertion of the shape server-to-server auth produces.
   # Payload decodes to {"sub":"jdoe"}; it is signed with the public example
   # key and grants nothing.
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJqZG9lIn0\.[A-Za-z0-9_-]+''',
