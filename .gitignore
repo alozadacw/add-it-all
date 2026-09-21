@@ -6,7 +6,13 @@ __pycache__/
 htmlcov/
 .venv/
 venv/
+# Any local env file may hold real tokens. `.env` alone was not enough:
+# a `.env.test` holding live Okta/Jira/CAIRO credentials sat untracked and
+# committable in a PUBLIC repo until 2026-09-21. Match the whole family and
+# re-allow only the committed template.
 .env
+.env.*
+!.env.example
 *.sqlite3
 
 # Claude Code: .claude/settings.json is committed (team-wide permissions).

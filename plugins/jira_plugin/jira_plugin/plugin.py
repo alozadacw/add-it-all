@@ -1,7 +1,7 @@
 """
 Jira connector: issues assigned to and reported by a person.
 
-`lookup-cli jira <identifier>` shows the issues currently assigned to
+`add-it-all jira <identifier>` shows the issues currently assigned to
 someone; `-r` shows what they reported.
 
 Three facts about Jira Cloud drive this module's shape. All were
@@ -34,7 +34,7 @@ Reported is historical. On the real instance the two differ substantially
 for the same person, so they are shown under separate headings and never
 merged into one count.
 
-**Looking up one issue.** `lookup-cli jira ENG-1` shows a single ticket.
+**Looking up one issue.** `add-it-all jira ENG-1` shows a single ticket.
 The identifier is normally a person, but an issue key is distinctive enough
 (`ABC-123`) to detect without guessing -- an email always carries an `@`,
 and a display name never has the letters-hyphen-digits shape. Detection is
@@ -51,7 +51,7 @@ Required env vars (see `.env.example`):
     JIRA_API_TOKEN      an API token (Basic auth, email:token)
 Optional:
     JIRA_TIMEOUT_SECONDS        per-request timeout (default 10)
-    LOOKUP_CLI_MOCK_JIRA=1      serve a fixture instead of calling out
+    ADD_IT_ALL_MOCK_JIRA=1      serve a fixture instead of calling out
 """
 
 from __future__ import annotations
@@ -65,8 +65,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.redaction import safe_error
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.redaction import safe_error
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
@@ -488,7 +488,7 @@ class JiraPlugin(ConnectorPlugin):
     # -- CLI ------------------------------------------------------------------
 
     def cli(self) -> typer.Typer:
-        """`lookup-cli jira <identifier> [-t] [-r]`."""
+        """`add-it-all jira <identifier> [-t] [-r]`."""
         sub_app = typer.Typer(
             help="Jira issue lookups.",
             context_settings={"allow_interspersed_args": True},
@@ -533,7 +533,7 @@ class JiraPlugin(ConnectorPlugin):
                     console.print(
                         f"[red]{', '.join(unusable)} cannot be used with an issue key.[/red]\n"
                         f"{identifier} is one ticket; those flags select a person's issues.\n"
-                        f"Did you mean: [bold]lookup-cli jira {identifier}[/bold]?"
+                        f"Did you mean: [bold]add-it-all jira {identifier}[/bold]?"
                     )
                     raise typer.Exit(code=2)
                 _print_issue(identifier)

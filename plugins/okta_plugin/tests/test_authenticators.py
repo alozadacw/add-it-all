@@ -1,5 +1,5 @@
 """
-Stage 2: authenticators enrolled by a user (`lookup-cli okta <user> -u`).
+Stage 2: authenticators enrolled by a user (`add-it-all okta <user> -u`).
 
 Source: `GET /api/v1/users/{userId}/factors`. "Factor" is the API's word;
 "authenticator" is what the Okta admin console calls the same thing, so the
@@ -22,7 +22,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin, factor_detail, factor_label
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -325,7 +325,7 @@ async def test_the_api_token_never_appears_in_an_authenticators_error():
 
 
 async def test_mock_mode_returns_fixture_authenticators_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_authenticators("jdoe")
 

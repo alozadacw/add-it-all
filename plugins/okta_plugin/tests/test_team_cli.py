@@ -26,8 +26,8 @@ import respx
 from okta_plugin.plugin import OktaPlugin
 from typer.testing import CliRunner
 
-from lookup_cli.cli import build_app
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.cli import build_app
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -37,7 +37,7 @@ USER_ID = "00u1abcdefGHIJKLmno7"
 GROUPS_URL = f"{USERS_URL}/{USER_ID}/groups"
 
 CONFIG = PluginConfig({"OKTA_ORG_URL": ORG_URL, "OKTA_API_TOKEN": "not-a-real-token"})
-MOCK_CONFIG = PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"})
+MOCK_CONFIG = PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"})
 
 runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 

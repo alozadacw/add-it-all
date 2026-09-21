@@ -33,7 +33,7 @@ import pytest
 import respx
 from jira_plugin.plugin import JiraPlugin, build_jql
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.jira
 
@@ -447,7 +447,7 @@ async def test_a_trailing_slash_on_the_base_url_does_not_double_up():
 
 
 async def test_mock_mode_works_with_no_credentials():
-    plugin = JiraPlugin(PluginConfig({"LOOKUP_CLI_MOCK_JIRA": "1"}))
+    plugin = JiraPlugin(PluginConfig({"ADD_IT_ALL_MOCK_JIRA": "1"}))
 
     result = await plugin.fetch("dana@example.com")
 

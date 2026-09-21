@@ -14,15 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from lookup_cli.config import Settings, get_settings
+from add_it_all.config import Settings, get_settings
 
 pytestmark = pytest.mark.cache
 
 # Every env var that could leak in from the developer's real shell or from
 # the repo's own .env and quietly invalidate a precedence assertion.
 _INTERFERING_VARS = (
-    "LOOKUP_CLI_CACHE_DB_PATH",
-    "LOOKUP_CLI_CACHE_TTL_SECONDS",
+    "ADD_IT_ALL_CACHE_DB_PATH",
+    "ADD_IT_ALL_CACHE_TTL_SECONDS",
 )
 
 
@@ -48,7 +48,7 @@ def _write_dotenv(directory: Path, body: str) -> None:
 def test_defaults_apply_when_nothing_is_configured(clean_env):
     settings = Settings()
     assert settings.cache_ttl_seconds == 3600
-    assert settings.cache_db_path == Path.home() / ".lookup-cli" / "cache.sqlite3"
+    assert settings.cache_db_path == Path.home() / ".add-it-all" / "cache.sqlite3"
 
 
 def test_bare_settings_never_raises_on_empty_environment(clean_env):
@@ -57,18 +57,18 @@ def test_bare_settings_never_raises_on_empty_environment(clean_env):
 
 
 def test_env_var_overrides_default(clean_env, monkeypatch):
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_TTL_SECONDS", "60")
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_TTL_SECONDS", "60")
     assert Settings().cache_ttl_seconds == 60
 
 
 def test_dotenv_is_used_when_env_var_absent(clean_env):
-    _write_dotenv(clean_env, "LOOKUP_CLI_CACHE_TTL_SECONDS=120\n")
+    _write_dotenv(clean_env, "ADD_IT_ALL_CACHE_TTL_SECONDS=120\n")
     assert Settings().cache_ttl_seconds == 120
 
 
 def test_env_var_takes_precedence_over_dotenv(clean_env, monkeypatch):
-    _write_dotenv(clean_env, "LOOKUP_CLI_CACHE_TTL_SECONDS=120\n")
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_TTL_SECONDS", "60")
+    _write_dotenv(clean_env, "ADD_IT_ALL_CACHE_TTL_SECONDS=120\n")
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_TTL_SECONDS", "60")
     assert Settings().cache_ttl_seconds == 60
 
 
@@ -87,46 +87,46 @@ def test_unprefixed_service_credentials_are_ignored_not_fatal(clean_env, monkeyp
 
 
 def test_path_is_coerced_from_string(clean_env, monkeypatch):
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(clean_env / "custom" / "c.sqlite3"))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(clean_env / "custom" / "c.sqlite3"))
     assert Settings().cache_db_path == clean_env / "custom" / "c.sqlite3"
 
 
 def test_tilde_in_cache_path_is_expanded(clean_env, monkeypatch):
-    """`.env.example` ships `~/.lookup-cli/cache.sqlite3`.
+    """`.env.example` ships `~/.add-it-all/cache.sqlite3`.
 
     Pydantic coerces that string to Path("~/...") verbatim, so without
     expansion the cache is created in a directory literally named `~`
     under the current working directory -- i.e. a plaintext store of
     employee PII inside the git checkout, not in $HOME.
     """
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", "~/.lookup-cli/cache.sqlite3")
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", "~/.add-it-all/cache.sqlite3")
 
     resolved = Settings().cache_db_path
 
     assert "~" not in str(resolved)
-    assert resolved == Path.home() / ".lookup-cli" / "cache.sqlite3"
+    assert resolved == Path.home() / ".add-it-all" / "cache.sqlite3"
 
 
 def test_tilde_from_dotenv_is_expanded_too(clean_env):
-    _write_dotenv(clean_env, "LOOKUP_CLI_CACHE_DB_PATH=~/.lookup-cli/cache.sqlite3\n")
-    assert Settings().cache_db_path == Path.home() / ".lookup-cli" / "cache.sqlite3"
+    _write_dotenv(clean_env, "ADD_IT_ALL_CACHE_DB_PATH=~/.add-it-all/cache.sqlite3\n")
+    assert Settings().cache_db_path == Path.home() / ".add-it-all" / "cache.sqlite3"
 
 
 def test_get_settings_does_not_create_a_tilde_directory(clean_env, monkeypatch):
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(clean_env / "ok" / "cache.sqlite3"))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(clean_env / "ok" / "cache.sqlite3"))
     get_settings()
     assert not (clean_env / "~").exists()
 
 
 def test_invalid_ttl_raises_a_validation_error(clean_env, monkeypatch):
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_TTL_SECONDS", "not-a-number")
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_TTL_SECONDS", "not-a-number")
     with pytest.raises(Exception):  # pydantic ValidationError
         Settings()
 
 
 def test_get_settings_creates_the_cache_directory(clean_env, monkeypatch):
     target = clean_env / "nested" / "dir" / "cache.sqlite3"
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(target))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(target))
 
     settings = get_settings()
 
@@ -137,7 +137,7 @@ def test_get_settings_creates_the_cache_directory(clean_env, monkeypatch):
 def test_get_settings_creates_cache_directory_owner_only(clean_env, monkeypatch):
     """The cache holds employee PII -- its directory must not be world-readable."""
     target = clean_env / "private" / "cache.sqlite3"
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(target))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(target))
 
     get_settings()
 
@@ -148,7 +148,7 @@ def test_get_settings_creates_cache_directory_owner_only(clean_env, monkeypatch)
 def test_get_settings_is_idempotent_on_existing_directory(clean_env, monkeypatch):
     target = clean_env / "existing" / "cache.sqlite3"
     target.parent.mkdir(parents=True)
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(target))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(target))
 
     get_settings()
     get_settings()  # must not raise on the second call

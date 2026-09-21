@@ -2,7 +2,7 @@
 Plugin-supplied CLI subcommands.
 
 Ground rule 2 says a connector task must not touch core. Wiring each
-service's subcommand into `src/lookup_cli/cli.py` by hand would break that
+service's subcommand into `src/add_it_all/cli.py` by hand would break that
 for every connector, so core mounts whatever sub-app a plugin returns from
 `cli()` instead. One generic core change, then never again -- which is the
 extensibility claim Stage 8 checks.
@@ -16,10 +16,10 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from lookup_cli.cli import build_app
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.plugins.config import PluginConfig
-from lookup_cli.plugins.registry import PluginLoadError
+from add_it_all.cli import build_app
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.plugins.config import PluginConfig
+from add_it_all.plugins.registry import PluginLoadError
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -68,13 +68,13 @@ def test_core_commands_still_work_alongside_plugin_subcommands():
 
 
 def test_broken_plugin_discovery_does_not_prevent_the_cli_from_starting(monkeypatch):
-    """`lookup-cli plugins list` is how you diagnose a broken plugin -- it must
+    """`add-it-all plugins list` is how you diagnose a broken plugin -- it must
     still run when discovery raises, rather than the whole CLI failing to load."""
 
     def boom(*args, **kwargs):
         raise PluginLoadError("entry point exploded")
 
-    monkeypatch.setattr("lookup_cli.cli.discover_plugins", boom)
+    monkeypatch.setattr("add_it_all.cli.discover_plugins", boom)
 
     app = build_app()  # must not raise
     result = runner.invoke(app, ["plugins", "list"])

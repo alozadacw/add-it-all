@@ -14,9 +14,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LOOKUP_CLI_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="ADD_IT_ALL_", env_file=".env", extra="ignore")
 
-    cache_db_path: Path = Path.home() / ".lookup-cli" / "cache.sqlite3"
+    cache_db_path: Path = Path.home() / ".add-it-all" / "cache.sqlite3"
     cache_ttl_seconds: int = 3600
 
     @field_validator("cache_db_path", mode="after")
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     def _expand_user(cls, value: Path) -> Path:
         """Expand a leading `~`.
 
-        `.env.example` ships `~/.lookup-cli/cache.sqlite3` and pydantic
+        `.env.example` ships `~/.add-it-all/cache.sqlite3` and pydantic
         coerces that to Path("~/...") literally. Without this, the cache --
         plaintext employee PII -- is created in a directory named `~` under
         the current working directory, which for a dev running from the repo

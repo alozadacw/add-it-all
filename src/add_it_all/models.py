@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from lookup_cli.plugins.base import ConnectorResult
+from add_it_all.plugins.base import ConnectorResult
 
 
 @dataclass

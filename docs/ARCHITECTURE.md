@@ -23,7 +23,7 @@ Plugin Registry (entry_points discovery)
 ConnectorPlugin implementations (Okta, Jira, Jamf, allwhere, ...)
 ```
 
-### Plugin contract (`src/lookup_cli/plugins/base.py`)
+### Plugin contract (`src/add_it_all/plugins/base.py`)
 
 ```python
 class ConnectorPlugin(ABC):
@@ -45,13 +45,13 @@ shape:** the CLI's table/JSON renderer and the cache layer only need to
 understand `ConnectorResult` once, ever. A new plugin slots into both
 without either being touched.
 
-### Plugin discovery (`src/lookup_cli/plugins/registry.py`)
+### Plugin discovery (`src/add_it_all/plugins/registry.py`)
 
-Plugins register under the `lookup_cli.plugins` entry-point group in
+Plugins register under the `add_it_all.plugins` entry-point group in
 their own `pyproject.toml`:
 
 ```toml
-[project.entry-points."lookup_cli.plugins"]
+[project.entry-points."add_it_all.plugins"]
 okta = "okta_plugin.plugin:OktaPlugin"
 ```
 
@@ -62,11 +62,11 @@ lookup, so a broken plugin is caught in CI/startup, not by a confused
 end user.
 
 This is why each real connector lives in its own installable package
-under `plugins/<name>_plugin/` rather than inside `src/lookup_cli/`:
+under `plugins/<name>_plugin/` rather than inside `src/add_it_all/`:
 it proves the "install a package, get a new command" story actually
 works, rather than us privileging some plugins as "built-in."
 
-### Cache (`src/lookup_cli/cache.py`)
+### Cache (`src/add_it_all/cache.py`)
 
 SQLite table keyed on `(plugin_name, identifier)`. Each row has its own
 `fetched_at`; TTL is checked at read time. This means:
@@ -76,7 +76,7 @@ SQLite table keyed on `(plugin_name, identifier)`. Each row has its own
 - Cache is fully explainable by inspecting one SQLite file --
   deliberately no background eviction daemon or process for v1.
 
-### Aggregation & `UnifiedRecord` (`src/lookup_cli/models.py`)
+### Aggregation & `UnifiedRecord` (`src/add_it_all/models.py`)
 
 `UnifiedRecord.from_results(identifier, [result, result, ...])`
 merges N `ConnectorResult`s. `.field_for(plugin_name)` returns `None`
@@ -88,7 +88,7 @@ callers (CLI renderer) are written to expect gaps.
 Each real connector plugin owns a `_call_backend`-style seam (see
 `plugins/echo_plugin/echo_plugin/plugin.py`) so a mock/fixture-backed
 implementation can stand in for the real HTTP client via an env var
-(`LOOKUP_CLI_MOCK_<PLUGIN>=1`) without changing the plugin's public
+(`ADD_IT_ALL_MOCK_<PLUGIN>=1`) without changing the plugin's public
 `fetch()` contract, its tests, or anything upstream of it. This is how
 Jamf/allwhere get built *before* credentials exist.
 
@@ -98,7 +98,7 @@ Jamf/allwhere get built *before* credentials exist.
 - No secrets manager/keychain integration (env vars/.env, per project
   decision) -- revisit if this becomes a multi-user shared tool.
   Credentials reach plugins through an injected `PluginConfig` (see
-  `src/lookup_cli/plugins/config.py`), not via each plugin calling
+  `src/add_it_all/plugins/config.py`), not via each plugin calling
   `os.getenv`; that is what lets core report an unconfigured plugin
   before a lookup rather than during one.
 
@@ -112,4 +112,4 @@ Jamf/allwhere get built *before* credentials exist.
   gathers with `asyncio.gather`.
 - **Connector errors are scrubbed.** `fetch()` never raising means every
   ordinary failure becomes a cached, printed string; `safe_error()` in
-  `src/lookup_cli/redaction.py` strips credentials out of it first.
+  `src/add_it_all/redaction.py` strips credentials out of it first.

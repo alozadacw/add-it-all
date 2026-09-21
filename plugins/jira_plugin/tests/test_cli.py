@@ -1,5 +1,5 @@
 """
-Stage 3: the `lookup-cli jira <identifier> [flags]` CLI surface.
+Stage 3: the `add-it-all jira <identifier> [flags]` CLI surface.
 
 Same shape as every other connector: identifier as a direct argument, no
 noun subcommands, flags select sections and bundle.
@@ -22,8 +22,8 @@ import respx
 from jira_plugin.plugin import JiraPlugin
 from typer.testing import CliRunner
 
-from lookup_cli.cli import build_app
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.cli import build_app
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.jira
 
@@ -34,7 +34,7 @@ SEARCH_URL = f"{BASE}/rest/api/3/search/jql"
 CONFIG = PluginConfig({
     "JIRA_BASE_URL": BASE, "JIRA_EMAIL": "svc@example.com", "JIRA_API_TOKEN": "not-a-real-token",
 })
-MOCK_CONFIG = PluginConfig({"LOOKUP_CLI_MOCK_JIRA": "1"})
+MOCK_CONFIG = PluginConfig({"ADD_IT_ALL_MOCK_JIRA": "1"})
 
 runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

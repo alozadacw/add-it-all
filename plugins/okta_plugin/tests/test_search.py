@@ -35,7 +35,7 @@ import pytest
 import respx
 from okta_plugin.plugin import MAX_SEARCH_RESULTS, OktaPlugin, build_search_expression
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -468,7 +468,7 @@ async def test_the_api_token_never_appears_in_a_search_error():
 
 
 async def test_mock_mode_returns_fixture_matches_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_search("dennis")
 
@@ -478,7 +478,7 @@ async def test_mock_mode_returns_fixture_matches_without_network():
 
 async def test_the_mock_fixture_includes_a_deactivated_user():
     """So the mock demo shows the case the feature exists for."""
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_search("dennis")
 

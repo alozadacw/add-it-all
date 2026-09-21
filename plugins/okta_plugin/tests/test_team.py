@@ -32,7 +32,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin, build_comparison, render_team_html
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -434,7 +434,7 @@ async def test_team_group_comparison_propagates_a_roster_failure():
 async def test_team_group_comparison_mock_mode_shows_drift_without_network():
     """The mock demo must show the case the feature exists for -- a team that
     diverges -- via the peer-cohort path, not a flat matrix."""
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_team_groups("jchen")
 

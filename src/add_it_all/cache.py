@@ -9,7 +9,7 @@ Retention note: entries hold employee PII (account status, device
 serials, ticket history) in plaintext. Expiry therefore *deletes* rather
 than merely hiding rows, the database is created owner-only, and
 `purge_expired()`/`clear()` give operators a way to empty it without
-knowing the on-disk path (see `lookup-cli cache`).
+knowing the on-disk path (see `add-it-all cache`).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lookup_cli.plugins.base import ConnectorResult
+from add_it_all.plugins.base import ConnectorResult
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cache_entries (

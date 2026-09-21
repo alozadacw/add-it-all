@@ -24,7 +24,7 @@ from typing import Mapping
 
 from dotenv import dotenv_values
 
-#: Spellings accepted for boolean env vars such as LOOKUP_CLI_MOCK_JAMF.
+#: Spellings accepted for boolean env vars such as ADD_IT_ALL_MOCK_JAMF.
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 DOTENV_FILENAME = ".env"
@@ -80,7 +80,7 @@ class PluginConfig:
         return bool(self._values.get(key, "").strip())
 
     def flag(self, key: str) -> bool:
-        """Interpret `key` as a boolean toggle (e.g. LOOKUP_CLI_MOCK_JAMF)."""
+        """Interpret `key` as a boolean toggle (e.g. ADD_IT_ALL_MOCK_JAMF)."""
         return self._values.get(key, "").strip().lower() in _TRUTHY
 
     def __repr__(self) -> str:

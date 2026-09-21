@@ -6,7 +6,7 @@ minimal example new plugin authors can copy.
 
 from __future__ import annotations
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
 
 
 class EchoPlugin(ConnectorPlugin):

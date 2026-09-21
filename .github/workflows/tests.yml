@@ -32,7 +32,7 @@ jobs:
             pip install -e "$(dirname "$manifest")"
           done
       - name: Run test suite
-        run: pytest --cov=src/lookup_cli --cov-report=term-missing
+        run: pytest --cov=src/add_it_all --cov-report=term-missing
 
   secret-scan:
     runs-on: ubuntu-latest

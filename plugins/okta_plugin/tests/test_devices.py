@@ -1,5 +1,5 @@
 """
-Stage 2: devices assigned to a user in Okta (`lookup-cli okta <user> -d`).
+Stage 2: devices assigned to a user in Okta (`add-it-all okta <user> -d`).
 
 Scope note: this is Okta's device registry (Okta Verify / device trust),
 NOT the Jamf hardware inventory that Stage 4 will add. A user can
@@ -17,7 +17,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -278,7 +278,7 @@ async def test_the_api_token_never_appears_in_a_devices_error():
 
 
 async def test_mock_mode_returns_fixture_devices_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_devices("jdoe")
 

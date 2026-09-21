@@ -20,7 +20,7 @@ the scaffold has a real bug, and `docs/STAGES.md` checkboxes should not
 be flipped until it's fixed.
 
 Expected green state as of 2026-08-25 (verified on Python 3.13.15,
-macOS/arm64): `lookup-cli plugins list` shows two rows — `echo` (built-in)
+macOS/arm64): `add-it-all plugins list` shows two rows — `echo` (built-in)
 and `echo_standalone` (the template package) — and **52 tests pass in a
 single `pytest` run at 96% coverage**. Plugin packages' own tests are now
 collected by the root run (`testpaths = ["tests", "plugins"]` with
@@ -36,7 +36,7 @@ Then:
    with real `OKTA_ORG_URL` / `OKTA_API_TOKEN` and `JIRA_BASE_URL` /
    `JIRA_EMAIL` / `JIRA_API_TOKEN` (both services already have
    credentials per `docs/STAGES.md`). Leave the Jamf/allwhere
-   `LOOKUP_CLI_MOCK_*=1` flags as-is — no credentials for those yet.
+   `ADD_IT_ALL_MOCK_*=1` flags as-is — no credentials for those yet.
 2. **Resolve or triage the Open Decisions Log** at the bottom of
    `docs/STAGES.md` before starting Stage 2-3 implementation work —
    at minimum, flag which ones block starting vs. which can wait. Two
@@ -59,7 +59,7 @@ Then:
 ## Running commands in this repo (read this before running anything)
 
 **Always use explicit venv paths: `.venv/bin/pytest`, `.venv/bin/pip`,
-`.venv/bin/lookup-cli`, `.venv/bin/python`.**
+`.venv/bin/add-it-all`, `.venv/bin/python`.**
 
 Each Bash tool call starts a fresh shell from the user's profile, so a venv
 the developer activated in their own terminal is *not* active here —
@@ -89,7 +89,7 @@ Two more things worth knowing:
 
 ## What this project is
 
-A Python CLI (`lookup-cli`) that gathers data about a subject across
+A Python CLI (`add-it-all`) that gathers data about a subject across
 several services and aggregates it into one record. Most connectors are
 person-scoped — Okta, Jira, Jamf, allwhere all take a username and
 return that person's status/assets. **Not all are:** CAIRO takes a vendor
@@ -108,7 +108,7 @@ service never requires touching core code. Full rationale in
    `tests/.../test_x.py` (or the plugin's own `tests/test_plugin.py`)
    before touching implementation files, and say so explicitly.
 2. **Core vs. plugin boundary is load-bearing.** Files under
-   `src/lookup_cli/plugins/base.py`, `registry.py`, `cache.py`,
+   `src/add_it_all/plugins/base.py`, `registry.py`, `cache.py`,
    `models.py`, and `cli.py` are core. A task about "add Jamf support"
    should almost never touch these -- if it seems to require touching
    them, stop and flag it rather than assuming it's fine (see
@@ -122,7 +122,7 @@ service never requires touching core code. Full rationale in
 4. **`fetch()` must never raise for ordinary failures** (not found,
    auth error, timeout, 5xx). Catch and return `ConnectorResult(error=...)`.
    Only let genuine bugs propagate. **Build that error string with
-   `safe_error(exc)` from `lookup_cli.redaction`, never `str(exc)`** —
+   `safe_error(exc)` from `add_it_all.redaction`, never `str(exc)`** —
    it gets persisted to the SQLite cache and printed, and raw client
    exceptions carry URLs and auth headers.
 5. **Secrets stay in `.env` / env vars, never in code, tests, git
@@ -136,9 +136,9 @@ service never requires touching core code. Full rationale in
 ## Repo map
 
 ```
-src/lookup_cli/            core (registry, cache, models, cli, base contract)
-src/lookup_cli/redaction.py  secret scrubbing for connector error strings
-src/lookup_cli/plugins/config.py  PluginConfig injected into every connector
+src/add_it_all/            core (registry, cache, models, cli, base contract)
+src/add_it_all/redaction.py  secret scrubbing for connector error strings
+src/add_it_all/plugins/config.py  PluginConfig injected into every connector
 plugins/echo_plugin/       template plugin package -- copy for new connectors
 plugins/okta_plugin/       Stage 2 connector -- the reference *real* service
 tests/unit/framework/      Stage 0 tests (registry, redaction)
@@ -161,25 +161,25 @@ pip install -e plugins/echo_plugin        # and any other plugin packages
 pytest -m plugin_framework                # Stage 0
 pytest -m cache                           # Stage 1
 pytest -m okta / jira / jamf / allwhere / cli        # per-stage/plugin
-pytest --cov=src/lookup_cli               # full suite with coverage
-lookup-cli plugins list
-lookup-cli cache path|clear|purge         # local PII cache: inspect / empty
-lookup-cli okta <user>                    # status (default view)
-lookup-cli okta <user> -d                 # devices only;  -sd for both
-lookup-cli okta <user> -a                 # applications;  -apps / --apps
-lookup-cli okta <user> -u                 # authenticators; -authenticators
-lookup-cli okta <user> -g                 # Okta groups the user belongs to
-lookup-cli okta <user> -sdaug             # all five sections
-lookup-cli okta <user> --team             # compare group memberships across the team
-lookup-cli okta <user> --team --html f.html  # ...and write it as a standalone page
-lookup-cli okta --find <name>             # search by name -> usernames (not chainable)
-lookup-cli okta --find "first last"       # multiple words narrow (AND)
-lookup-cli okta --find <name> --all       # every match, not just the first 15
-lookup-cli jira <user>                    # assigned issues;  -r reported;  -tr both
-lookup-cli jira <user> --all              # page the cursor for a real count
-lookup-cli jira ENG-123                   # one issue by key (auto-detected)
-lookup-cli cairo <name>                   # CAIRO/TPRM vendor + its applications
-lookup-cli lookup <identifier>            # once Stage 7 lands
+pytest --cov=src/add_it_all               # full suite with coverage
+add-it-all plugins list
+add-it-all cache path|clear|purge         # local PII cache: inspect / empty
+add-it-all okta <user>                    # status (default view)
+add-it-all okta <user> -d                 # devices only;  -sd for both
+add-it-all okta <user> -a                 # applications;  -apps / --apps
+add-it-all okta <user> -u                 # authenticators; -authenticators
+add-it-all okta <user> -g                 # Okta groups the user belongs to
+add-it-all okta <user> -sdaug             # all five sections
+add-it-all okta <user> --team             # compare group memberships across the team
+add-it-all okta <user> --team --html f.html  # ...and write it as a standalone page
+add-it-all okta --find <name>             # search by name -> usernames (not chainable)
+add-it-all okta --find "first last"       # multiple words narrow (AND)
+add-it-all okta --find <name> --all       # every match, not just the first 15
+add-it-all jira <user>                    # assigned issues;  -r reported;  -tr both
+add-it-all jira <user> --all              # page the cursor for a real count
+add-it-all jira ENG-123                   # one issue by key (auto-detected)
+add-it-all cairo <name>                   # CAIRO/TPRM vendor + its applications
+add-it-all lookup <identifier>            # once Stage 7 lands
 ```
 
 Marker runs cover plugin packages too, so `pytest -m okta` will include
@@ -190,18 +190,18 @@ Marker runs cover plugin packages too, so `pytest -m okta` will include
 
 - Stage 0 (plugin framework): **verified green** 2026-08-25 on Python
   3.13.15. 57 tests under `-m plugin_framework` (includes the plugin
-  package's own tests now); `lookup-cli plugins list` shows `echo` and
+  package's own tests now); `add-it-all plugins list` shows `echo` and
   `echo_standalone` with a configured/mock/missing status column.
   `testpaths` gap closed; `safe_error()` scrubbing added to the contract;
   `fetch()` is now `async def`; credentials arrive via an injected
   `PluginConfig`.
 - Stage 1 (cache/data model): **verified green** 2026-08-25 — 30 tests
   under `-m cache`. `cache.py` and `config.py` both 100%. Expiry now
-  deletes rows; `lookup-cli cache clear|purge` added; DB is `0600` in a
+  deletes rows; `add-it-all cache clear|purge` added; DB is `0600` in a
   `0700` directory.
 - Stage 2 (Okta): **mocks green** 2026-09-15 — `pytest -m okta` 339 passed.
   `plugins/okta_plugin/` implements the real client. Four sections select
-  via flags (bare = status), and `LOOKUP_CLI_MOCK_OKTA=1` runs any of them
+  via flags (bare = status), and `ADD_IT_ALL_MOCK_OKTA=1` runs any of them
   with no credentials:
   - `-s`/`--status` — account status, `access_blocked`, deactivation
   - `-d`/`--devices` — Okta device registry (`--last-signin` adds per-device

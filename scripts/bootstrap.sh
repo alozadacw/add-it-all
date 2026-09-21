@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-command dev bootstrap for lookup-cli.
+# One-command dev bootstrap for add-it-all.
 #
 # Creates a virtualenv, installs the core package plus every plugin
 # package under plugins/, and then verifies the scaffold actually works:
@@ -102,7 +102,7 @@ fi
 step "Installing core package and dev dependencies"
 "$VENV_PY" -m pip install --upgrade pip --quiet
 "$VENV_PY" -m pip install -e ".[dev]" --quiet
-ok "lookup-cli + dev extras installed (editable)"
+ok "add-it-all + dev extras installed (editable)"
 
 step "Installing plugin packages"
 # Globbed, not hardcoded: a new connector package under plugins/ is picked
@@ -154,7 +154,7 @@ run_check() {
 
 step "Verifying the CLI loads and discovers plugins"
 plugins_output=""
-if plugins_output="$("${VENV_DIR}/bin/lookup-cli" plugins list 2>&1)"; then
+if plugins_output="$("${VENV_DIR}/bin/add-it-all" plugins list 2>&1)"; then
     printf '%s\n' "$plugins_output"
     if grep -q 'echo' <<<"$plugins_output"; then
         ok "entry-point discovery found the echo plugin"
@@ -164,8 +164,8 @@ if plugins_output="$("${VENV_DIR}/bin/lookup-cli" plugins list 2>&1)"; then
     fi
 else
     printf '%s\n' "$plugins_output"
-    fail "lookup-cli plugins list exited non-zero"
-    failures+=("lookup-cli plugins list")
+    fail "add-it-all plugins list exited non-zero"
+    failures+=("add-it-all plugins list")
 fi
 
 if (( skip_tests )); then
@@ -180,7 +180,7 @@ else
     # single run includes every connector package's own tests. (It used to
     # need a separate per-plugin loop here; see docs/STAGES.md Stage 0.)
     run_check "full suite + coverage" \
-        "${VENV_DIR}/bin/pytest" --cov=src/lookup_cli --cov-report=term-missing
+        "${VENV_DIR}/bin/pytest" --cov=src/add_it_all --cov-report=term-missing
 fi
 
 # --- 6. Summary -------------------------------------------------------------

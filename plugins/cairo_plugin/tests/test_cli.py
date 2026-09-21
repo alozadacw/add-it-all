@@ -1,5 +1,5 @@
 """
-`lookup-cli cairo <name>` -- the CAIRO CLI surface.
+`add-it-all cairo <name>` -- the CAIRO CLI surface.
 
 Follows the shape every connector here uses: `<service> <identifier>
 [flags]`, no noun subcommands. The identifier is a vendor or application
@@ -21,8 +21,8 @@ import respx
 from cairo_plugin.plugin import CairoPlugin
 from typer.testing import CliRunner
 
-from lookup_cli.cli import build_app
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.cli import build_app
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.cairo
 
@@ -31,7 +31,7 @@ VENDORS_URL = f"{BASE}/api/vendors"
 VENDOR_ID = "e4df561c-0000-0000-0000-b792214ea7b2"
 
 CONFIG = PluginConfig({"CAIRO_BASE_URL": BASE, "CAIRO_API_KEY": "not-a-real-key"})
-MOCK_CONFIG = PluginConfig({"LOOKUP_CLI_MOCK_CAIRO": "1"})
+MOCK_CONFIG = PluginConfig({"ADD_IT_ALL_MOCK_CAIRO": "1"})
 
 runner = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.plugins.config import MissingCredential, PluginConfig
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.plugins.config import MissingCredential, PluginConfig
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -62,16 +62,16 @@ def test_require_treats_an_empty_value_as_missing():
 
 @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on"])
 def test_flag_recognises_truthy_spellings(raw):
-    assert PluginConfig({"LOOKUP_CLI_MOCK_JAMF": raw}).flag("LOOKUP_CLI_MOCK_JAMF") is True
+    assert PluginConfig({"ADD_IT_ALL_MOCK_JAMF": raw}).flag("ADD_IT_ALL_MOCK_JAMF") is True
 
 
 @pytest.mark.parametrize("raw", ["0", "false", "no", "", "off"])
 def test_flag_recognises_falsy_spellings(raw):
-    assert PluginConfig({"LOOKUP_CLI_MOCK_JAMF": raw}).flag("LOOKUP_CLI_MOCK_JAMF") is False
+    assert PluginConfig({"ADD_IT_ALL_MOCK_JAMF": raw}).flag("ADD_IT_ALL_MOCK_JAMF") is False
 
 
 def test_flag_is_false_when_absent():
-    assert PluginConfig({}).flag("LOOKUP_CLI_MOCK_JAMF") is False
+    assert PluginConfig({}).flag("ADD_IT_ALL_MOCK_JAMF") is False
 
 
 # --- Building from the environment -------------------------------------------
@@ -149,8 +149,8 @@ def test_plugin_with_no_required_credentials_is_always_configured():
 
 
 def test_mock_mode_follows_the_documented_env_var_convention():
-    """.env.example uses LOOKUP_CLI_MOCK_<PLUGIN>; bake it into the contract."""
-    plugin = _FakePlugin(PluginConfig({"LOOKUP_CLI_MOCK_FAKE": "1"}))
+    """.env.example uses ADD_IT_ALL_MOCK_<PLUGIN>; bake it into the contract."""
+    plugin = _FakePlugin(PluginConfig({"ADD_IT_ALL_MOCK_FAKE": "1"}))
     assert plugin.mock_mode is True
 
 
@@ -160,7 +160,7 @@ def test_mock_mode_is_false_by_default():
 
 def test_a_mock_mode_plugin_counts_as_configured_without_credentials():
     """Jamf/allwhere run mock-first, with no credentials provisioned."""
-    plugin = _FakePlugin(PluginConfig({"LOOKUP_CLI_MOCK_FAKE": "1"}))
+    plugin = _FakePlugin(PluginConfig({"ADD_IT_ALL_MOCK_FAKE": "1"}))
     assert plugin.configured is True
 
 

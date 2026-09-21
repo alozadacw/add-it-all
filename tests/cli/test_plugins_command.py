@@ -1,7 +1,7 @@
 import pytest
 from typer.testing import CliRunner
 
-from lookup_cli.cli import app
+from add_it_all.cli import app
 
 pytestmark = pytest.mark.plugin_framework
 

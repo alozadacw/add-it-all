@@ -1,5 +1,5 @@
 """
-Stage 2: applications assigned to a user (`lookup-cli okta <user> -a`).
+Stage 2: applications assigned to a user (`add-it-all okta <user> -a`).
 
 Source: `GET /api/v1/users/{userId}/appLinks` -- the same list that builds
 the user's Okta dashboard. Scope caveat worth knowing: appLinks says *what*
@@ -19,7 +19,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -294,7 +294,7 @@ async def test_the_api_token_never_appears_in_an_apps_error():
 
 
 async def test_mock_mode_returns_fixture_apps_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_apps("jdoe")
 

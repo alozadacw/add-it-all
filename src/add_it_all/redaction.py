@@ -25,7 +25,7 @@ from typing import Iterable
 REDACTED = "***"
 
 #: Env values shorter than this are ignored as redaction targets -- scrubbing
-#: every occurrence of a value like "1" (LOOKUP_CLI_MOCK_JAMF=1) would shred
+#: every occurrence of a value like "1" (ADD_IT_ALL_MOCK_JAMF=1) would shred
 #: unrelated text and make errors unreadable.
 _MIN_ENV_SECRET_LEN = 8
 

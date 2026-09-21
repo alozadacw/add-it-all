@@ -3,19 +3,19 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lookup-cli-echo-plugin"
+name = "add-it-all-echo-plugin"
 version = "0.1.0"
-description = "Template connector plugin for lookup-cli. Copy this package to build a new service connector (Jamf, allwhere, or anything else)."
+description = "Template connector plugin for add-it-all. Copy this package to build a new service connector (Jamf, allwhere, or anything else)."
 requires-python = ">=3.11"
-dependencies = ["lookup-cli"]
+dependencies = ["add-it-all"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2"]
 
 # This is the whole trick: register your plugin class here, under the
 # SAME entry-point group the core CLI already scans. Nothing in
-# src/lookup_cli/ needs to change when you add a new package like this.
-[project.entry-points."lookup_cli.plugins"]
+# src/add_it_all/ needs to change when you add a new package like this.
+[project.entry-points."add_it_all.plugins"]
 echo_standalone = "echo_plugin.plugin:EchoStandalonePlugin"
 
 [tool.setuptools.packages.find]

@@ -13,9 +13,9 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from lookup_cli.cache import Cache
-from lookup_cli.cli import app
-from lookup_cli.plugins.base import ConnectorResult
+from add_it_all.cache import Cache
+from add_it_all.cli import app
+from add_it_all.plugins.base import ConnectorResult
 
 pytestmark = pytest.mark.cache
 
@@ -26,7 +26,7 @@ runner = CliRunner()
 def cache_db(tmp_path, monkeypatch):
     """Point the CLI at a throwaway cache DB via the documented env var."""
     db_path = tmp_path / "cache.sqlite3"
-    monkeypatch.setenv("LOOKUP_CLI_CACHE_DB_PATH", str(db_path))
+    monkeypatch.setenv("ADD_IT_ALL_CACHE_DB_PATH", str(db_path))
     monkeypatch.chdir(tmp_path)  # don't pick up the repo's real .env
     return db_path
 

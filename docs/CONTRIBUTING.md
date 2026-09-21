@@ -24,7 +24,7 @@ For every task in `docs/STAGES.md`:
 ```bash
 pytest -m okta                # just this stage/plugin
 pytest                        # everything
-pytest -m okta --cov=src/lookup_cli
+pytest -m okta --cov=src/add_it_all
 ```
 
 Do not merge a PR that adds implementation code without a preceding
@@ -43,7 +43,7 @@ with tests visibly written to fail first in the PR description).
 - [ ] Tests written before/alongside implementation, and pass locally
 - [ ] New/changed env vars added to `.env.example` with a comment
 - [ ] If a new plugin: `docs/CONNECTOR_GUIDE.md` followed, no edits to
-      `src/lookup_cli/` core (registry/base/cache/models) unless the
+      `src/add_it_all/` core (registry/base/cache/models) unless the
       task is explicitly about the framework itself
 - [ ] `docs/STAGES.md` task checkbox updated
 

@@ -14,7 +14,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -265,7 +265,7 @@ def test_configured_plugin_reports_itself_configured():
 
 async def test_mock_mode_works_with_no_credentials_and_no_network():
     """Lets someone try the tool before any token is provisioned."""
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch("jdoe")
 
@@ -393,6 +393,6 @@ async def test_other_profile_attributes_are_not_swept_in():
 
 
 async def test_mock_mode_includes_the_attribute():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
     result = await plugin.fetch("jdoe")
     assert "access_blocked" in result.data
