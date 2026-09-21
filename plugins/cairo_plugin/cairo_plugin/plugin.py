@@ -1,14 +1,14 @@
 """
 CAIRO connector: the internal TPRM vendor and application register.
 
-`lookup-cli cairo <name>` answers "is this vendor/application allowed in
+`add-it-all cairo <name>` answers "is this vendor/application allowed in
 our space, and what do we know about how it is used".
 
 **Not person-scoped.** Every other connector here takes a person. CAIRO
 takes a vendor or application name. It is deliberately excluded from the
 Stage 7 person aggregate -- see `docs/STAGES.md`. That exclusion lives in
 the aggregate command's explicit plugin list rather than as a flag here,
-so adding this connector required no change to `src/lookup_cli/`.
+so adding this connector required no change to `src/add_it_all/`.
 
 Two API facts drive the shape of this module.
 
@@ -61,7 +61,7 @@ Required env vars (see `.env.example`):
     CAIRO_API_KEY       read-only API key, sent as `Authorization: Bearer`
 Optional:
     CAIRO_TIMEOUT_SECONDS       per-request timeout (default 10)
-    LOOKUP_CLI_MOCK_CAIRO=1     serve a fixture instead of calling out
+    ADD_IT_ALL_MOCK_CAIRO=1     serve a fixture instead of calling out
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.redaction import safe_error
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.redaction import safe_error
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
@@ -388,7 +388,7 @@ class CairoPlugin(ConnectorPlugin):
     # -- CLI ------------------------------------------------------------------
 
     def cli(self) -> typer.Typer:
-        """`lookup-cli cairo <vendor-or-application-name>`.
+        """`add-it-all cairo <vendor-or-application-name>`.
 
         Same shape as every other connector: identifier as a direct argument,
         no noun subcommands. Lives here, not in core `cli.py`.

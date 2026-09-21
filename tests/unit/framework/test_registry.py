@@ -8,9 +8,9 @@ import inspect
 
 import pytest
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.plugins.config import PluginConfig
-from lookup_cli.plugins.registry import PluginLoadError, discover_plugins
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.plugins.config import PluginConfig
+from add_it_all.plugins.registry import PluginLoadError, discover_plugins
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -63,7 +63,7 @@ def test_invalid_plugin_class_raises_plugin_load_error(monkeypatch):
             return NotAPlugin
 
     monkeypatch.setattr(
-        "lookup_cli.plugins.registry._iter_entry_points",
+        "add_it_all.plugins.registry._iter_entry_points",
         lambda: iter([FakeEntryPoint()]),
     )
 
@@ -93,7 +93,7 @@ def test_plugin_rejecting_config_raises_an_actionable_plugin_load_error(monkeypa
             return LegacyPlugin
 
     monkeypatch.setattr(
-        "lookup_cli.plugins.registry._iter_entry_points",
+        "add_it_all.plugins.registry._iter_entry_points",
         lambda: iter([FakeEntryPoint()]),
     )
 
@@ -120,7 +120,7 @@ def test_plugin_missing_name_attribute_raises_plugin_load_error(monkeypatch):
             return Nameless
 
     monkeypatch.setattr(
-        "lookup_cli.plugins.registry._iter_entry_points",
+        "add_it_all.plugins.registry._iter_entry_points",
         lambda: iter([FakeEntryPoint()]),
     )
 

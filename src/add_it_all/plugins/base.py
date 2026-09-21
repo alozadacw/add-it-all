@@ -10,7 +10,7 @@ pluggable without touching core code.
 To add a new service:
     1. Create a package (see plugins/echo_plugin for the reference shape).
     2. Implement ConnectorPlugin.fetch() -- note it is `async def`.
-    3. Register it under the `lookup_cli.plugins` entry-point group in
+    3. Register it under the `add_it_all.plugins` entry-point group in
        that package's pyproject.toml.
     4. `pip install -e .` the plugin package. Done -- no core changes.
 
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 
 @dataclass
@@ -71,11 +71,11 @@ class ConnectorPlugin(ABC):
     def mock_mode(self) -> bool:
         """Whether this plugin should serve fixtures instead of calling out.
 
-        Follows the `LOOKUP_CLI_MOCK_<PLUGIN>` convention already used in
+        Follows the `ADD_IT_ALL_MOCK_<PLUGIN>` convention already used in
         `.env.example`, so Jamf/allwhere can be built before their
         credentials exist.
         """
-        return self.config.flag(f"LOOKUP_CLI_MOCK_{self.name.upper()}")
+        return self.config.flag(f"ADD_IT_ALL_MOCK_{self.name.upper()}")
 
     @property
     def configured(self) -> bool:
@@ -85,10 +85,10 @@ class ConnectorPlugin(ABC):
         return all(self.config.has(key) for key in self.required_credentials)
 
     def cli(self) -> Any | None:
-        """Optional `typer.Typer` sub-app, mounted at `lookup-cli <name> ...`.
+        """Optional `typer.Typer` sub-app, mounted at `add-it-all <name> ...`.
 
         Return None (the default) for no subcommands. Defining this in the
-        plugin package is what keeps `src/lookup_cli/cli.py` free of
+        plugin package is what keeps `src/add_it_all/cli.py` free of
         per-service wiring: adding a connector never edits core, which is
         the claim Stage 8 exists to verify.
 
@@ -111,7 +111,7 @@ class ConnectorPlugin(ABC):
         programming errors should propagate.
 
         Build that error string with `safe_error(exc)` from
-        `lookup_cli.redaction`, never `str(exc)`: it is persisted to the
+        `add_it_all.redaction`, never `str(exc)`: it is persisted to the
         cache and printed, and client exceptions carry URLs and auth
         headers.
         """

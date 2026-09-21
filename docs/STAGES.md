@@ -14,7 +14,7 @@ Legend: **[ ]** not started **[~]** in progress **[x]** done
 ## CLI shape (decided 2026-09-02 — applies to every connector stage)
 
 ```
-lookup-cli <service> <identifier> [flags]
+add-it-all <service> <identifier> [flags]
 ```
 
 The identifier is a direct argument; flags select which sections to show.
@@ -65,35 +65,35 @@ Two consequences to know before adding a stage's flags:
   This is why `-au` and `-app` are deliberately *not* declared.
 
 Okta (Stage 2) is the reference implementation. Stage 7's aggregate command
-`lookup-cli lookup <identifier>` takes the same shape.
+`add-it-all lookup <identifier>` takes the same shape.
 
 ---
 
 ## Stage 0 -- Plugin Framework
 **Status: verified green** -- installed and run 2026-08-19 on Python 3.14.0
-(macOS/arm64): `pytest -m plugin_framework` 5 passed, `lookup-cli plugins
+(macOS/arm64): `pytest -m plugin_framework` 5 passed, `add-it-all plugins
 list` shows both `echo` and `echo_standalone`. Reproduce with
 `./scripts/bootstrap.sh`.
 
 | Task | Depends on | Notes |
 |---|---|---|
-| [x] Define `ConnectorPlugin` ABC + `ConnectorResult` dataclass | -- | `src/lookup_cli/plugins/base.py` |
-| [x] Implement entry-point-based `discover_plugins()` | ABC | `src/lookup_cli/plugins/registry.py` |
-| [x] Built-in `echo` plugin proving discovery works | registry | `src/lookup_cli/plugins/echo_builtin.py` |
+| [x] Define `ConnectorPlugin` ABC + `ConnectorResult` dataclass | -- | `src/add_it_all/plugins/base.py` |
+| [x] Implement entry-point-based `discover_plugins()` | ABC | `src/add_it_all/plugins/registry.py` |
+| [x] Built-in `echo` plugin proving discovery works | registry | `src/add_it_all/plugins/echo_builtin.py` |
 | [x] Standalone installable `echo_plugin` template package | registry | `plugins/echo_plugin/` -- copy this for every real connector |
-| [x] `lookup-cli plugins list` command | registry, CLI skeleton | `src/lookup_cli/cli.py` |
+| [x] `add-it-all plugins list` command | registry, CLI skeleton | `src/add_it_all/cli.py` |
 | [x] **Run `pytest -m plugin_framework` in a real environment and confirm green** | all above | 5 passed on Python 3.14.0, 2026-08-19 |
 | [x] Scripted one-command bootstrap so this is reproducible for every dev | above | `scripts/bootstrap.sh` -- installs core + all `plugins/*` packages, verifies CLI/discovery/tests, exits non-zero on failure. Referenced as the first step in `README.md` |
 | [x] Set up CI (GitHub Actions) running `pytest` on every PR | above | `.github/workflows/tests.yml` confirmed green on the first real run (2026-08-19, Python 3.11, 43s): 13 passed, 87% coverage -- byte-identical to the local 3.14 run (152 stmts / 20 miss), which lowers the version-skew concern in the decisions log |
 | [x] Fix `testpaths` so per-plugin test suites are collected | above | Fixed 2026-08-25. `testpaths = ["tests", "plugins"]` plus `--import-mode=importlib`. The import mode is required, not cosmetic: root `tests/` and every `plugins/*/tests/` are both packages named `tests`, which collide under pytest's default prepend mode (`ModuleNotFoundError: No module named 'tests.test_plugin'`). Also added `--strict-markers`, and gave `echo_plugin`'s tests a `pytestmark` so `pytest -m <stage>` covers plugin packages too. Bootstrap's separate per-plugin loop is now redundant and was removed |
 | [x] Fix plugin-vs-plugin test shadowing | above | **The above fix was incomplete and looked complete with only one plugin installed.** Adding `okta_plugin` revealed that two `plugins/*/tests/` packages both resolve to the module name `tests.test_plugin`, so one silently shadowed the other: collection reported 102 tests when there were 122, and 20 tests stopped running while the suite still went green. Fixed by deleting `__init__.py` from every plugin `tests/` directory — importlib mode then derives a unique module name per file. `tests/unit/framework/test_plugin_test_layout.py` fails the build if one is re-added, and `CONNECTOR_GUIDE.md` §3 warns against it. Worth remembering as a pattern: a collection bug hides itself, because the tests that would fail are the ones not running |
 | [x] Make `fetch()` async | ABC | Done 2026-08-25 per the decision below. `base.py`, both echo plugins, and their tests converted; `pytest-asyncio` added with `asyncio_mode = "auto"` |
-| [x] Inject credentials via `PluginConfig` instead of per-plugin `os.getenv` | ABC, registry | Done 2026-08-25 per the decision below. New `src/lookup_cli/plugins/config.py`; `discover_plugins(config)` injects; `required_credentials` + `mock_mode` + `configured` on the base class; `plugins list` gained a status column. The registry raises an actionable `PluginLoadError` if a plugin overrides `__init__` without calling `super().__init__(config)` |
-| [x] Guard the entry-point handshake between core and every plugin package | registry | Added 2026-09-21. `tests/unit/framework/test_entry_point_registration.py`. A plugin whose entry-point group drifts from `registry.ENTRY_POINT_GROUP` **disappears silently** -- core searches a group it isn't in, finds nothing, and continues with one fewer connector. Verified the gap before writing the guard: pointing one installed package at another group left `plugins list` short a row and `lookup-cli okta ...` reporting no such command, while the **full suite still passed**. Two reasons it hid: the only other discovery assertion is `discover_plugins()["echo"]`, and `echo` is declared in *core's own* pyproject so it is renamed by the same edit that renames `registry.py`; and every connector test builds its app with an explicit dict, never going through discovery. The guard derives its expectations by globbing `plugins/*/pyproject.toml` rather than hardcoding a list -- a hardcoded set would protect existing connectors and stay silent about the next one, which is the case that actually matters. `ENTRY_POINT_GROUP` is imported, not written out, so the test asserts agreement rather than a particular string and survives a project rename untouched |
-| [x] Route connector errors through a scrubbing helper | ABC | Added 2026-08-25. `src/lookup_cli/redaction.py::safe_error()`. Rule 4 of the contract turns every ordinary failure into `ConnectorResult(error=str(exc))`, which `Cache.put()` then writes to SQLite and the CLI prints -- so an httpx exception carrying a URL or auth header became a durable plaintext credential. Redacts `Bearer`/`SSWS`/`Basic` credentials, URL userinfo, secret query params, JWTs, and the literal values of secret-named env vars. The `echo_plugin` template now models the pattern; every connector must follow it |
+| [x] Inject credentials via `PluginConfig` instead of per-plugin `os.getenv` | ABC, registry | Done 2026-08-25 per the decision below. New `src/add_it_all/plugins/config.py`; `discover_plugins(config)` injects; `required_credentials` + `mock_mode` + `configured` on the base class; `plugins list` gained a status column. The registry raises an actionable `PluginLoadError` if a plugin overrides `__init__` without calling `super().__init__(config)` |
+| [x] Guard the entry-point handshake between core and every plugin package | registry | Added 2026-09-21. `tests/unit/framework/test_entry_point_registration.py`. A plugin whose entry-point group drifts from `registry.ENTRY_POINT_GROUP` **disappears silently** -- core searches a group it isn't in, finds nothing, and continues with one fewer connector. Verified the gap before writing the guard: pointing one installed package at another group left `plugins list` short a row and `add-it-all okta ...` reporting no such command, while the **full suite still passed**. Two reasons it hid: the only other discovery assertion is `discover_plugins()["echo"]`, and `echo` is declared in *core's own* pyproject so it is renamed by the same edit that renames `registry.py`; and every connector test builds its app with an explicit dict, never going through discovery. The guard derives its expectations by globbing `plugins/*/pyproject.toml` rather than hardcoding a list -- a hardcoded set would protect existing connectors and stay silent about the next one, which is the case that actually matters. `ENTRY_POINT_GROUP` is imported, not written out, so the test asserts agreement rather than a particular string and survives a project rename untouched |
+| [x] Route connector errors through a scrubbing helper | ABC | Added 2026-08-25. `src/add_it_all/redaction.py::safe_error()`. Rule 4 of the contract turns every ordinary failure into `ConnectorResult(error=str(exc))`, which `Cache.put()` then writes to SQLite and the CLI prints -- so an httpx exception carrying a URL or auth header became a durable plaintext credential. Redacts `Bearer`/`SSWS`/`Basic` credentials, URL userinfo, secret query params, JWTs, and the literal values of secret-named env vars. The `echo_plugin` template now models the pattern; every connector must follow it |
 
 **Stage 0 is done when:** a developer can install the package, run
-`pytest -m plugin_framework`, see it pass, run `lookup-cli plugins list`,
+`pytest -m plugin_framework`, see it pass, run `add-it-all plugins list`,
 and see `echo` in the output.
 
 ---
@@ -105,13 +105,13 @@ no test exercises `Settings` yet (see task below).
 
 | Task | Depends on | Notes |
 |---|---|---|
-| [x] `Cache` class (SQLite, per plugin+identifier, TTL) | -- | `src/lookup_cli/cache.py` |
-| [x] `UnifiedRecord` merge/error model | -- | `src/lookup_cli/models.py` |
-| [x] `Settings` config loader (env vars / `.env`) | -- | `src/lookup_cli/config.py` |
+| [x] `Cache` class (SQLite, per plugin+identifier, TTL) | -- | `src/add_it_all/cache.py` |
+| [x] `UnifiedRecord` merge/error model | -- | `src/add_it_all/models.py` |
+| [x] `Settings` config loader (env vars / `.env`) | -- | `src/add_it_all/config.py` |
 | [x] **Run `pytest -m cache` and confirm green** | Cache, model | 8 passed on Python 3.14.0, 2026-08-19 |
 | [x] Write tests for `Settings` config loader | Settings | Done 2026-08-25 -- `tests/unit/config/test_settings.py`, `config.py` 0% -> 100%. Covers defaults, env-var override, `.env` fallback, env-beats-`.env` precedence, `Path` coercion, validation failure, and that unprefixed service creds (`OKTA_*`/`JIRA_*`) are ignored rather than absorbed. Note for future tests: `Settings` reads `.env` relative to **cwd**, so any test touching it must `chdir` to a tmp dir or it silently picks up the repo's real `.env` |
-| [x] Cache retention: expiry must delete, not just hide | Cache | Done 2026-08-25. `get()` past TTL previously returned `None` but left the row on disk forever -- the cache holds employee PII (status, serials, ticket history) in plaintext. `get()` now deletes on expiry; added `purge_expired()` and `clear()`, plus `lookup-cli cache path\|clear\|purge`. DB is created `0600` inside a `0700` directory |
-| [x] Fix `~` not being expanded in `cache_db_path` | Settings | Found 2026-08-25 while smoke-testing `lookup-cli cache path`. `.env.example` ships `LOOKUP_CLI_CACHE_DB_PATH=~/.lookup-cli/cache.sqlite3`; pydantic coerced that to `Path("~/...")` verbatim, so the cache was created at `./~/.lookup-cli/cache.sqlite3` — a plaintext store of employee PII **inside the git checkout** rather than in `$HOME`. Latent since Stage 1; nothing called `get_settings()` until now. Fixed with a `field_validator` calling `.expanduser()` |
+| [x] Cache retention: expiry must delete, not just hide | Cache | Done 2026-08-25. `get()` past TTL previously returned `None` but left the row on disk forever -- the cache holds employee PII (status, serials, ticket history) in plaintext. `get()` now deletes on expiry; added `purge_expired()` and `clear()`, plus `add-it-all cache path\|clear\|purge`. DB is created `0600` inside a `0700` directory |
+| [x] Fix `~` not being expanded in `cache_db_path` | Settings | Found 2026-08-25 while smoke-testing `add-it-all cache path`. `.env.example` ships `ADD_IT_ALL_CACHE_DB_PATH=~/.add-it-all/cache.sqlite3`; pydantic coerced that to `Path("~/...")` verbatim, so the cache was created at `./~/.add-it-all/cache.sqlite3` — a plaintext store of employee PII **inside the git checkout** rather than in `$HOME`. Latent since Stage 1; nothing called `get_settings()` until now. Fixed with a `field_validator` calling `.expanduser()` |
 | [ ] Decide & document per-plugin default TTLs (Okta status probably shorter than, say, Jamf device assignment) | none yet -- open decision | add to `docs/ARCHITECTURE.md` once decided |
 
 **Stage 1 is done when:** `pytest -m cache` passes, and cache/model
@@ -132,7 +132,7 @@ reports.
 | [x] Write mocked-response tests: active, suspended, deprovisioned, not-found, timeout/5xx | Stage 0 |
 | [x] Implement `okta_plugin` package (copy `echo_plugin` template) | tests above |
 | [x] Implement real Okta API client (`GET /api/v1/users/{login}`) behind `_call_backend` | tests above |
-| [x] `lookup-cli okta <user>` command (status is the default view) | plugin implemented |
+| [x] `add-it-all okta <user>` command (status is the default view) | plugin implemented |
 | [x] Add `OKTA_ORG_URL` / `OKTA_API_TOKEN` to `.env.example` | plugin implemented |
 | [ ] **Confirm a real token works in a manual smoke test** | a real token in `.env` |
 | [x] Add `okta` marker to `pyproject.toml` pytest markers | -- |
@@ -162,7 +162,7 @@ Notes from the implementation:
   `/api/v1/users`. Covered by a test.
 - **Requests are timeout-bounded** (`OKTA_TIMEOUT_SECONDS`, default 10), so a
   hanging service can't hang the whole aggregate.
-- **Mock mode works with zero credentials** (`LOOKUP_CLI_MOCK_OKTA=1`), so the
+- **Mock mode works with zero credentials** (`ADD_IT_ALL_MOCK_OKTA=1`), so the
   CLI can be demoed before a token is provisioned.
 - **`-d` lists devices** via `GET /api/v1/users/{userId}/devices`, kept out of
   `fetch()` deliberately: Stage 7 runs `fetch()` for every plugin on every
@@ -263,7 +263,7 @@ Notes from the implementation:
     in exactly the case that matters. Stage 7's cache integration must honour
     that flag.
   - **The discoverability hint is not a fallback.** A failed exact lookup
-    prints `Try: lookup-cli okta --find <name>` but does *not* run a search —
+    prints `Try: add-it-all okta --find <name>` but does *not* run a search —
     `--find` stays explicit and the miss path stays one API call. Not knowing
     the username is exactly the situation in which you also would not know
     the flag exists.
@@ -346,7 +346,7 @@ Notes from the implementation:
     should never present Okta's list as "the devices this person has".
 
 **Done when:** `pytest -m okta` green on mocks *(done)*, and one manual
-`lookup-cli okta <realuser>` against real Okta returns a sane result
+`add-it-all okta <realuser>` against real Okta returns a sane result
 *(pending)*.
 
 ---
@@ -362,11 +362,11 @@ better than the Okta situation. (Account name omitted: this repo is public.)
 | [x] Write mocked-response tests before implementation | Stage 0 |
 | [x] Implement `jira_plugin` package | tests above |
 | [x] JQL query by accountId (**reporter vs assignee resolved -- see below**) | tests above |
-| [x] `lookup-cli jira <user>` with `-t/--tickets` and `-r/--reported` | plugin implemented |
+| [x] `add-it-all jira <user>` with `-t/--tickets` and `-r/--reported` | plugin implemented |
 | [x] `--all` to page the cursor and get a real count | plugin implemented |
 | [x] **Live smoke test against real Jira** | service account in `.env` |
 | [x] Leave room in `properties` for future status/project filters | plugin implemented |
-| [x] `lookup-cli jira ENG-123` -- look one issue up by key | plugin implemented |
+| [x] `add-it-all jira ENG-123` -- look one issue up by key | plugin implemented |
 
 Notes from the implementation -- all three API facts were found by probing
 the live instance, not from documentation:
@@ -445,7 +445,7 @@ the live instance, not from documentation:
 | [ ] Write mocked-response tests: tickets found, zero results, pagination, auth error | Stage 0 |
 | [ ] Implement `jira_plugin` package | tests above |
 | [ ] JQL query `reporter = "<user>"` (confirm: reporter vs. assignee -- decide with team, document choice) | tests above |
-| [ ] `lookup-cli jira <user>` command with `-t/--tickets` (see the CLI shape note at the top of this file) | plugin implemented |
+| [ ] `add-it-all jira <user>` command with `-t/--tickets` (see the CLI shape note at the top of this file) | plugin implemented |
 | [ ] Leave room in `properties` for future status/project filters (don't build the filter UI yet, just don't block it) | plugin implemented |
 
 **Done when:** `pytest -m jira` green on mocks, manual smoke test against real Jira confirmed.
@@ -458,8 +458,8 @@ the live instance, not from documentation:
 |---|---|
 | [ ] Write tests against fixture data: devices found, zero devices, malformed fixture | Stage 0 |
 | [ ] Build realistic fixture JSON (device name, serial, model, last check-in, assigned user) | -- |
-| [ ] Implement `jamf_plugin` package with `LOOKUP_CLI_MOCK_JAMF` toggle | tests, fixtures |
-| [ ] `lookup-cli jamf <user>` command with `-d/--devices` (see the CLI shape note at the top of this file) | plugin implemented |
+| [ ] Implement `jamf_plugin` package with `ADD_IT_ALL_MOCK_JAMF` toggle | tests, fixtures |
+| [ ] `add-it-all jamf <user>` command with `-d/--devices` (see the CLI shape note at the top of this file) | plugin implemented |
 | [ ] **Blocked/parallel track:** once credentials exist, implement real `_call_backend` (Jamf Pro API) -- no test/CLI changes needed | credentials provisioned |
 
 **Done when:** `pytest -m jamf` green against fixtures; real-API swap is a
@@ -496,8 +496,8 @@ client's shape and should be settled before any code.
 |---|---|
 | [ ] Write tests against fixture data: shipments found, zero shipments, in-transit vs. delivered states | Stage 0 |
 | [ ] Build realistic fixture JSON | -- |
-| [ ] Implement `allwhere_plugin` package with `LOOKUP_CLI_MOCK_ALLWHERE` toggle | tests, fixtures |
-| [ ] `lookup-cli allwhere <user>` command with `-s/--shipments` (see the CLI shape note at the top of this file) | plugin implemented |
+| [ ] Implement `allwhere_plugin` package with `ADD_IT_ALL_MOCK_ALLWHERE` toggle | tests, fixtures |
+| [ ] `add-it-all allwhere <user>` command with `-s/--shipments` (see the CLI shape note at the top of this file) | plugin implemented |
 
 **Done when:** `pytest -m allwhere` green against fixtures.
 
@@ -505,7 +505,7 @@ client's shape and should be settled before any code.
 
 ## CAIRO -- TPRM vendor & application register (real API, credentials available)
 **Status: verified against the live API** 2026-09-04 -- `pytest -m cairo`
-50 passed, and `lookup-cli cairo <name>` was smoke-tested against the real
+50 passed, and `add-it-all cairo <name>` was smoke-tested against the real
 dev instance across all four paths (exact match, ambiguous, no match,
 vendor with no assessment). **This is the first connector confirmed working
 end-to-end against a real service.**
@@ -518,7 +518,7 @@ from the Stage 7 person aggregate — see the person-scoped plugin list there.
 | [x] Write mocked-response tests before implementation | Stage 0 |
 | [x] Implement `cairo_plugin` package (copy `echo_plugin` template) | tests above |
 | [x] Real client behind `_call_vendors_backend` / `_call_vendor_detail_backend` | tests above |
-| [x] `lookup-cli cairo <name>` command | plugin implemented |
+| [x] `add-it-all cairo <name>` command | plugin implemented |
 | [x] Add `CAIRO_BASE_URL` / `CAIRO_API_KEY` to `.env.example` | -- |
 | [x] Add `cairo` marker to `pyproject.toml` | -- |
 | [x] **Live smoke test against the real org** | a real key in `.env` |
@@ -568,7 +568,7 @@ Notes from the implementation:
   several hundred characters and turned a one-row table into a fifteen-line
   block. `summarise()` prefers cutting at the first sentence, which on this
   data is reliably the "what is this" summary.
-- **Adding this connector required zero changes to `src/lookup_cli/`.**
+- **Adding this connector required zero changes to `src/add_it_all/`.**
 
 ---
 
@@ -576,7 +576,7 @@ Notes from the implementation:
 
 | Task | Depends on |
 |---|---|
-| [ ] `lookup-cli lookup <user>` -- runs the **person-scoped plugin list** (see below), merges via `UnifiedRecord` | Stages 2-6 (or however many are done) |
+| [ ] `add-it-all lookup <user>` -- runs the **person-scoped plugin list** (see below), merges via `UnifiedRecord` | Stages 2-6 (or however many are done) |
 | [ ] One plugin erroring must not fail the whole command -- test with a deliberately broken mock plugin | above |
 | [ ] `--format table\|json` output flag (default table via `rich`) | above |
 | [ ] Cache integration: check cache before calling `fetch()`, write through after | Stage 1 cache |
@@ -585,7 +585,7 @@ Notes from the implementation:
 
 ### Person-scoped plugin list (decided 2026-09-04)
 
-`lookup-cli lookup <identifier>` fans out to an **explicit list**, not to
+`add-it-all lookup <identifier>` fans out to an **explicit list**, not to
 every discovered plugin:
 
 ```
@@ -606,7 +606,7 @@ must be added to this list by hand, and forgetting means it silently never
 runs in the aggregate. Whoever builds Stage 7 should put a test on the list
 contents so that failure is loud.
 
-**Done when:** `pytest -m cli` green, and `lookup-cli lookup <user>`
+**Done when:** `pytest -m cli` green, and `add-it-all lookup <user>`
 against a mix of real + mocked plugins produces a readable combined result.
 
 ---
@@ -616,7 +616,7 @@ against a mix of real + mocked plugins produces a readable combined result.
 | Task | Depends on |
 |---|---|
 | [ ] A team member who did **not** write the plugin framework builds a throwaway 6th plugin using only `docs/CONNECTOR_GUIDE.md` | Stages 0-7 |
-| [ ] Confirm zero edits were needed inside `src/lookup_cli/` | above |
+| [ ] Confirm zero edits were needed inside `src/add_it_all/` | above |
 | [ ] Fold any friction points found into `docs/CONNECTOR_GUIDE.md` | above |
 | [ ] Final pass on `README.md`, `docs/ARCHITECTURE.md` for accuracy vs. what actually got built | above |
 
@@ -639,12 +639,12 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       connector authors write plain `async def test_...` with no decorator.
       A regression test asserts `inspect.iscoroutinefunction(plugin.fetch)`.
 - [x] ~~How plugins receive credentials~~ **Resolved 2026-08-25: inject a
-      `PluginConfig`.** See `src/lookup_cli/plugins/config.py`. Core builds one
+      `PluginConfig`.** See `src/add_it_all/plugins/config.py`. Core builds one
       config (merging `.env` and the process environment, environment winning)
       and passes it to every plugin at discovery. Plugins declare
       `required_credentials`; `plugins list` now shows configured / mock /
       missing-and-which. `mock_mode` is built into the base class following the
-      existing `LOOKUP_CLI_MOCK_<PLUGIN>` convention. Non-obvious payoff:
+      existing `ADD_IT_ALL_MOCK_<PLUGIN>` convention. Non-obvious payoff:
       `bootstrap.sh` writes credentials to `.env` and nothing exports them, so
       plugins reading only `os.environ` would have seen nothing after a
       developer followed the README.
@@ -664,14 +664,14 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       Probably acceptable for a small IT team, but state it as an explicit
       scope boundary rather than leaving it implicit.
 - [x] ~~Whether CLI subcommands for each plugin live in that plugin's own
-      package or stay centralized in `src/lookup_cli/cli.py`~~ **Resolved
+      package or stay centralized in `src/add_it_all/cli.py`~~ **Resolved
       2026-08-25: in the plugin package.** Forced by Stage 2 -- adding
-      `lookup-cli okta` wiring to core `cli.py` would have broken ground rule
+      `add-it-all okta` wiring to core `cli.py` would have broken ground rule
       2 for every future connector, and falsified the Stage 8 claim before
       Stage 8 ran. `ConnectorPlugin.cli()` returns an optional `typer.Typer`
       and `build_app()` mounts it under the plugin's name. One generic core
       change, made deliberately and flagged, so no connector edits core again.
-      `okta_plugin` was built with **zero** edits to `src/lookup_cli/` beyond
+      `okta_plugin` was built with **zero** edits to `src/add_it_all/` beyond
       that hook.
 - [x] ~~Supported Python versions (Stage 0)~~ **Resolved 2026-08-25:** CI now
       runs a `["3.11", "3.13"]` matrix, so the floor declared by
@@ -772,10 +772,10 @@ the relevant stage can finish, so it doesn't get lost in a task list:
       status, exact-match-wins, a cap with "N more not shown", and no
       auto-resolution on a single hit. They are deliberately duplicated
       because `plugins/CLAUDE.md` forbids importing across plugin packages,
-      and extracting shared rendering into `src/lookup_cli/` is a core
+      and extracting shared rendering into `src/add_it_all/` is a core
       decision that a connector task should not make as a side effect. If a
       third connector needs it, that is the signal to extract — a
-      `lookup_cli.chooser` helper taking rows plus column labels. Two copies
+      `add_it_all.chooser` helper taking rows plus column labels. Two copies
       is cheaper than the wrong abstraction; three is not.
 - [x] ~~Okta uses a personal read-only API token rather than a service
       account (Stage 2)~~ **Resolved 2026-09-09:** swapped to a read-only

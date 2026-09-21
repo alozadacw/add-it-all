@@ -11,9 +11,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from freezegun import freeze_time
 
-from lookup_cli.cache import Cache
-from lookup_cli.models import UnifiedRecord
-from lookup_cli.plugins.base import ConnectorResult
+from add_it_all.cache import Cache
+from add_it_all.models import UnifiedRecord
+from add_it_all.plugins.base import ConnectorResult
 
 pytestmark = pytest.mark.cache
 

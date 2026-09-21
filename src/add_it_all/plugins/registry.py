@@ -2,7 +2,7 @@
 Plugin discovery via Python entry points.
 
 Any installed package that registers a class under the
-`lookup_cli.plugins` entry-point group is automatically picked up --
+`add_it_all.plugins` entry-point group is automatically picked up --
 no import list to maintain in core code.
 """
 
@@ -11,10 +11,10 @@ from __future__ import annotations
 from importlib.metadata import entry_points
 from typing import Iterator
 
-from lookup_cli.plugins.base import ConnectorPlugin
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.base import ConnectorPlugin
+from add_it_all.plugins.config import PluginConfig
 
-ENTRY_POINT_GROUP = "lookup_cli.plugins"
+ENTRY_POINT_GROUP = "add_it_all.plugins"
 
 
 class PluginLoadError(RuntimeError):

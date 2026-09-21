@@ -3,18 +3,18 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lookup-cli-jira-plugin"
+name = "add-it-all-jira-plugin"
 version = "0.1.0"
-description = "Jira issue connector for lookup-cli."
+description = "Jira issue connector for add-it-all."
 requires-python = ">=3.11"
-dependencies = ["lookup-cli", "httpx>=0.27"]
+dependencies = ["add-it-all", "httpx>=0.27"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "respx>=0.21"]
 
 # Registered under the same entry-point group core already scans, so
-# nothing in src/lookup_cli/ changed to add this connector.
-[project.entry-points."lookup_cli.plugins"]
+# nothing in src/add_it_all/ changed to add this connector.
+[project.entry-points."add_it_all.plugins"]
 jira = "jira_plugin.plugin:JiraPlugin"
 
 [tool.setuptools.packages.find]

@@ -16,8 +16,8 @@ To build a real connector (e.g. Jamf):
 
 from __future__ import annotations
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.redaction import safe_error
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.redaction import safe_error
 
 
 class EchoStandalonePlugin(ConnectorPlugin):
@@ -29,7 +29,7 @@ class EchoStandalonePlugin(ConnectorPlugin):
         except Exception as exc:  # noqa: BLE001 - deliberately broad: never crash aggregation
             # safe_error, never str(exc): this string is persisted to the
             # SQLite cache and printed, and a real connector's exceptions
-            # carry URLs and auth headers. See lookup_cli/redaction.py.
+            # carry URLs and auth headers. See add_it_all/redaction.py.
             return ConnectorResult(
                 plugin_name=self.name, identifier=identifier, error=safe_error(exc)
             )

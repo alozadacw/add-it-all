@@ -7,7 +7,7 @@ You're working inside a connector plugin package. Scope rules for this directory
   its own independently installable Python package with its own
   `pyproject.toml` and its own `tests/`.
 - Never import across plugin packages. Never import from one plugin
-  into another. Shared code belongs in `src/lookup_cli/` core, and
+  into another. Shared code belongs in `src/add_it_all/` core, and
   adding something there is a bigger decision -- flag it rather than
   doing it as a side effect of a plugin task.
 - `echo_plugin/` is the copy-from-here template, not a real service --

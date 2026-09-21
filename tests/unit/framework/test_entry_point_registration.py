@@ -5,8 +5,8 @@ Core never imports a connector. Each package *advertises* itself under a
 group name in its own `pyproject.toml`, and `registry.py` goes looking for
 that same string:
 
-    [project.entry-points."lookup_cli.plugins"]     <- in each package
-    ENTRY_POINT_GROUP = "lookup_cli.plugins"        <- in registry.py
+    [project.entry-points."add_it_all.plugins"]     <- in each package
+    ENTRY_POINT_GROUP = "add_it_all.plugins"        <- in registry.py
 
 That string is a rendezvous point duplicated across core plus every plugin
 package, and nothing but agreement makes it work. A mismatch does not
@@ -25,7 +25,7 @@ of the suite, which was verified rather than assumed:
     plugin directly and never asks whether it is registered.
 
 Pointing one installed package at a different group produced: `plugins
-list` missing that connector, `lookup-cli okta ...` reporting no such
+list` missing that connector, `add-it-all okta ...` reporting no such
 command, and **the full suite still passing**. This file closes that gap.
 
 **Deliberately derived, not listed.** An earlier sketch hardcoded the set
@@ -50,7 +50,7 @@ from pathlib import Path
 
 import pytest
 
-from lookup_cli.plugins.registry import ENTRY_POINT_GROUP, discover_plugins
+from add_it_all.plugins.registry import ENTRY_POINT_GROUP, discover_plugins
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -124,7 +124,7 @@ def test_every_package_declares_the_group_core_searches(pyproject: Path):
 def test_no_package_declares_a_near_miss_group(pyproject: Path):
     """A half-finished rename leaves a group that looks almost right.
 
-    `add_it_all.plugins` next to `lookup_cli.plugins` reads as fine at a
+    `add_it_all.plugins` next to `add_it_all.plugins` reads as fine at a
     glance, so this names the stragglers rather than leaving someone to
     diff two TOML files.
     """

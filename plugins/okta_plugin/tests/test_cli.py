@@ -1,5 +1,5 @@
 """
-Stage 2: the `lookup-cli okta <identifier> [flags]` CLI surface.
+Stage 2: the `add-it-all okta <identifier> [flags]` CLI surface.
 
 Shape decided 2026-09-02: `<service> <person> [what you want]`, with no
 noun subcommands. `okta status jdoe` / `okta devices jdoe` were removed --
@@ -23,8 +23,8 @@ import respx
 from okta_plugin.plugin import OktaPlugin
 from typer.testing import CliRunner
 
-from lookup_cli.cli import build_app
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.cli import build_app
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -34,7 +34,7 @@ USER_ID = "00u1abcdefGHIJKLmno7"
 DEVICES_URL = f"{USERS_URL}/{USER_ID}/devices"
 
 CONFIG = PluginConfig({"OKTA_ORG_URL": ORG_URL, "OKTA_API_TOKEN": "not-a-real-token"})
-MOCK_CONFIG = PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"})
+MOCK_CONFIG = PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"})
 
 # Pin the terminal width and disable colour: rich sizes tables to the terminal,
 # so assertions on cell contents would otherwise depend on whoever's shell runs
@@ -1037,7 +1037,7 @@ def test_find_prints_a_copy_pasteable_next_command():
 
     out = _out(runner.invoke(_app(), ["okta", "--find", "dennis"]))
 
-    assert "lookup-cli okta" in out
+    assert "add-it-all okta" in out
 
 
 @respx.mock
@@ -1188,7 +1188,7 @@ def test_the_conflict_error_says_what_to_do_instead():
 
     out = _out(result)
     assert "--find" in out
-    assert "lookup-cli okta" in out, "should show the two-step command"
+    assert "add-it-all okta" in out, "should show the two-step command"
 
 
 def test_find_combined_with_last_signin_is_also_rejected():

@@ -1,16 +1,26 @@
-# lookup-cli
+# Add-IT-ALL
 
-Unified, plugin-based CLI for looking up a person's identity/asset footprint
+`add-it-all` — unified, plugin-based CLI for looking up a person's identity/asset footprint
 across Okta, Jira, Jamf, CAIRO, and allwhere -- with
 room to add more services without touching core code.
 
 ```
-lookup-cli lookup jdoe               # aggregate across all installed plugins
-lookup-cli okta jdoe                 # one service: status by default
-lookup-cli okta jdoe -d              # ...and its devices
-lookup-cli jira jdoe -t
-lookup-cli plugins list              # see what's installed
+add-it-all lookup jdoe               # aggregate across all installed plugins
+add-it-all okta jdoe                 # one service: status by default
+add-it-all okta jdoe -d              # ...and its devices
+add-it-all jira jdoe -t
+add-it-all plugins list              # see what's installed
 ```
+
+
+> **Renamed 2026-09-21** from `lookup-cli`. Upgrading an existing checkout:
+> the command is now `add-it-all`, the env prefix is `ADD_IT_ALL_` (so
+> `LOOKUP_CLI_MOCK_OKTA` becomes `ADD_IT_ALL_MOCK_OKTA`), and the cache moved
+> to `~/.add-it-all/`. Run `pip uninstall lookup-cli lookup-cli-okta-plugin
+> lookup-cli-jira-plugin lookup-cli-cairo-plugin lookup-cli-echo-plugin`
+> before `./scripts/bootstrap.sh`, or the old and new distributions coexist.
+> Service credential names (`OKTA_API_TOKEN`, `JIRA_API_TOKEN`,
+> `CAIRO_API_KEY`) are unchanged.
 
 ## Status
 
@@ -48,7 +58,7 @@ If a check fails, fix it rather than working around it — a failure there
 means the scaffold itself is broken, not your machine.
 
 Then fill in real credentials in `.env` (Okta and Jira have credentials
-available today; Jamf and allwhere stay on their `LOOKUP_CLI_MOCK_*=1`
+available today; Jamf and allwhere stay on their `ADD_IT_ALL_MOCK_*=1`
 flags until creds are provisioned) and pick up the next unchecked task in
 [`docs/STAGES.md`](docs/STAGES.md).
 
@@ -63,9 +73,9 @@ pip install -e plugins/echo_plugin        # and any other plugin packages
 
 pytest -m plugin_framework                # Stage 0
 pytest -m cache                           # Stage 1
-pytest --cov=src/lookup_cli --cov-report=term-missing
+pytest --cov=src/add_it_all --cov-report=term-missing
 pytest plugins/echo_plugin/tests          # plugin packages' own tests
-lookup-cli plugins list                   # expect: echo, echo_standalone
+add-it-all plugins list                   # expect: echo, echo_standalone
 ```
 
 Note that `pytest` from the repo root does **not** pick up the per-plugin
@@ -81,14 +91,14 @@ needs to know:
 
 1. **Don't rely on an activated venv.** Every tool call starts a fresh shell,
    so your `source .venv/bin/activate` doesn't carry into Claude's shell. The
-   convention here is explicit paths — `.venv/bin/pytest`, `.venv/bin/lookup-cli`.
+   convention here is explicit paths — `.venv/bin/pytest`, `.venv/bin/add-it-all`.
    A bare `pytest` can silently run a global install against the wrong
    interpreter and report a green suite that means nothing.
 2. **Point it at the board.** *"Read `docs/STAGES.md` and start the next
    unchecked Stage 2 task"* is a good opener. Stage 2 (Okta) is next and has
    real credentials.
 3. **Watch the core/plugin boundary.** A connector task should not edit
-   `src/lookup_cli/`. That boundary is the architecture; `CLAUDE.md` tells
+   `src/add_it_all/`. That boundary is the architecture; `CLAUDE.md` tells
    Claude to flag rather than cross it, but you're the backstop.
 4. **Tests-first isn't enforced by CI.** The suite runs on every PR, but
    nothing blocks implementation that showed up without tests.

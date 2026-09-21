@@ -13,9 +13,9 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from lookup_cli.cli import app
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.cli import app
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -32,7 +32,7 @@ class _NeedsToken(ConnectorPlugin):
 
 def _patch_discovery(monkeypatch, plugin) -> None:
     monkeypatch.setattr(
-        "lookup_cli.cli.discover_plugins",
+        "add_it_all.cli.discover_plugins",
         lambda *args, **kwargs: {plugin.name: plugin},
     )
 
@@ -61,7 +61,7 @@ def test_unconfigured_plugin_names_the_missing_credentials(monkeypatch):
 
 
 def test_mock_mode_plugin_is_reported_as_mock(monkeypatch):
-    plugin = _NeedsToken(PluginConfig({"LOOKUP_CLI_MOCK_NEEDY": "1"}))
+    plugin = _NeedsToken(PluginConfig({"ADD_IT_ALL_MOCK_NEEDY": "1"}))
     _patch_discovery(monkeypatch, plugin)
 
     result = runner.invoke(app, ["plugins", "list"])

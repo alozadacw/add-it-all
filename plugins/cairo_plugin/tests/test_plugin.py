@@ -31,7 +31,7 @@ import pytest
 import respx
 from cairo_plugin.plugin import CairoPlugin
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.cairo
 
@@ -114,7 +114,7 @@ def _plugin(config: PluginConfig = CONFIG) -> CairoPlugin:
 # decision of 2026-09-04 that exclusion lives in the aggregate command's
 # explicit plugin list (okta, jira, jamf, allwhere), NOT as a flag on
 # the plugin -- so adding this connector required no change to core. The
-# reason it matters: `lookup-cli lookup dluo` fanning out here would search
+# reason it matters: `add-it-all lookup dluo` fanning out here would search
 # for a *vendor named dluo* and report nothing found, which is a silent
 # wrong answer in the view people trust most.
 
@@ -554,7 +554,7 @@ async def test_a_trailing_slash_on_the_base_url_does_not_double_up():
 
 
 async def test_mock_mode_works_with_no_credentials():
-    plugin = CairoPlugin(PluginConfig({"LOOKUP_CLI_MOCK_CAIRO": "1"}))
+    plugin = CairoPlugin(PluginConfig({"ADD_IT_ALL_MOCK_CAIRO": "1"}))
 
     result = await plugin.fetch("acmesec")
 

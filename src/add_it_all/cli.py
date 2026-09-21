@@ -6,9 +6,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lookup_cli.cache import Cache
-from lookup_cli.config import get_settings
-from lookup_cli.plugins.registry import PluginLoadError, discover_plugins
+from add_it_all.cache import Cache
+from add_it_all.config import get_settings
+from add_it_all.plugins.registry import PluginLoadError, discover_plugins
 
 plugins_app = typer.Typer(help="Inspect installed connector plugins.")
 cache_app = typer.Typer(help="Inspect and empty the local result cache.")
@@ -25,7 +25,7 @@ def build_app(plugins: dict | None = None) -> typer.Typer:
     used by tests.
     """
     application = typer.Typer(
-        help="Unified lookup across Okta, Jira, Jamf, allwhere, and more."
+        help="Add-IT-ALL: unified lookup across Okta, Jira, Jamf, CAIRO, allwhere, and more."
     )
     application.add_typer(plugins_app, name="plugins")
     application.add_typer(cache_app, name="cache")

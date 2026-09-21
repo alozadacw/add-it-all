@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lookup-cli"
+name = "add-it-all"
 version = "0.1.0"
-description = "Unified identity/asset lookup CLI across Okta, Jira, Jamf, allwhere, and future services"
+description = "Add-IT-ALL: unified identity/asset lookup CLI across Okta, Jira, Jamf, CAIRO, allwhere, and future services"
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
@@ -29,13 +29,13 @@ dev = [
 ]
 
 [project.scripts]
-lookup-cli = "lookup_cli.cli:app"
+add-it-all = "add_it_all.cli:app"
 
 # Core ships one built-in plugin (echo) used to prove the framework works
 # in Stage 0. Real service plugins register under this same entry-point
 # group from their own packages (see plugins/*/pyproject.toml).
-[project.entry-points."lookup_cli.plugins"]
-echo = "lookup_cli.plugins.echo_builtin:EchoPlugin"
+[project.entry-points."add_it_all.plugins"]
+echo = "add_it_all.plugins.echo_builtin:EchoPlugin"
 
 [tool.setuptools.packages.find]
 where = ["src"]

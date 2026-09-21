@@ -1,5 +1,5 @@
 """
-Stage 3: looking a single issue up by key -- `lookup-cli jira ENG-42`.
+Stage 3: looking a single issue up by key -- `add-it-all jira ENG-42`.
 
 The identifier is normally a person. An issue key is distinctive enough
 (`ABC-123`) that it can be told apart without guessing: an email always
@@ -27,7 +27,7 @@ import pytest
 import respx
 from jira_plugin.plugin import JiraPlugin, flatten_adf, looks_like_issue_key
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.jira
 
@@ -352,7 +352,7 @@ async def test_the_api_token_never_appears_in_an_issue_error():
 
 
 async def test_mock_mode_returns_a_fixture_issue():
-    plugin = JiraPlugin(PluginConfig({"LOOKUP_CLI_MOCK_JIRA": "1"}))
+    plugin = JiraPlugin(PluginConfig({"ADD_IT_ALL_MOCK_JIRA": "1"}))
 
     result = await plugin.fetch_issue("MOCK-1")
 

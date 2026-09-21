@@ -17,7 +17,7 @@ import pytest
 import respx
 from okta_plugin.plugin import OktaPlugin
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -222,7 +222,7 @@ async def test_the_api_token_never_appears_in_a_groups_error():
 
 
 async def test_mock_mode_returns_fixture_groups_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_groups("jdoe")
 

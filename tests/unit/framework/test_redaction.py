@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from lookup_cli.redaction import safe_error
+from add_it_all.redaction import safe_error
 
 pytestmark = pytest.mark.plugin_framework
 
@@ -91,8 +91,8 @@ def test_secret_valued_env_vars_are_redacted_wherever_they_appear(monkeypatch):
 
 
 def test_short_env_values_are_not_redacted(monkeypatch):
-    """LOOKUP_CLI_MOCK_JAMF=1 must not turn every '1' in a message into ***."""
-    monkeypatch.setenv("LOOKUP_CLI_MOCK_JAMF", "1")
+    """ADD_IT_ALL_MOCK_JAMF=1 must not turn every '1' in a message into ***."""
+    monkeypatch.setenv("ADD_IT_ALL_MOCK_JAMF", "1")
     assert safe_error("timeout after 1 retry") == "timeout after 1 retry"
 
 

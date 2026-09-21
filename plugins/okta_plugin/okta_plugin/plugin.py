@@ -53,7 +53,7 @@ Optional:
     OKTA_TIMEOUT_SECONDS        per-request timeout (default 10)
     OKTA_ACCESS_ATTRIBUTE       custom profile attribute carrying this org's
                                 access decision (default `access_blocked`)
-    LOOKUP_CLI_MOCK_OKTA=1      serve a fixture instead of calling out
+    ADD_IT_ALL_MOCK_OKTA=1      serve a fixture instead of calling out
 
 **Custom profile attribute.** This org's Universal Directory defines an
 attribute displayed in the Profile Editor as "ACCESS BLOCKED", variable
@@ -81,8 +81,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from lookup_cli.plugins.base import ConnectorPlugin, ConnectorResult
-from lookup_cli.redaction import safe_error
+from add_it_all.plugins.base import ConnectorPlugin, ConnectorResult
+from add_it_all.redaction import safe_error
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
@@ -587,7 +587,7 @@ def render_team_html(
 </head>
 <body>
 <div class="wrap">
-  <p class="eyebrow">lookup-cli &middot; okta &middot; team group comparison</p>
+  <p class="eyebrow">add-it-all &middot; okta &middot; team group comparison</p>
   <h1>Group comparison &mdash; team of {subject}</h1>
   <p class="sub">{whose} Columns run oldest hire date on the left; group rows
   run from those shared by everyone down to individual access, shaded by how
@@ -1621,7 +1621,7 @@ class OktaPlugin(ConnectorPlugin):
     # -- CLI ------------------------------------------------------------------
 
     def cli(self) -> typer.Typer:
-        """`lookup-cli okta <identifier> [-s] [-d]`.
+        """`add-it-all okta <identifier> [-s] [-d]`.
 
         Shape: `<service> <person> [what you want]`, with no noun
         subcommands. `okta status jdoe` and `okta devices jdoe` were removed
@@ -1631,7 +1631,7 @@ class OktaPlugin(ConnectorPlugin):
         Stages 4-6 follow the same shape.
 
         Lives here, not in core `cli.py`, so this connector required no edit
-        to `src/lookup_cli/`.
+        to `src/add_it_all/`.
         """
         sub_app = typer.Typer(
             help="Okta account lookups.",
@@ -1757,7 +1757,7 @@ class OktaPlugin(ConnectorPlugin):
                     console.print(
                         f"[red]--find cannot be combined with[/red] {', '.join(conflicting)}[red].[/red]\n"
                         "--find locates a person; the section flags describe one already found.\n"
-                        f"Find the username first, then: [bold]lookup-cli okta <username> "
+                        f"Find the username first, then: [bold]add-it-all okta <username> "
                         f"{conflicting[0]}[/bold]"
                     )
                     raise typer.Exit(code=2)
@@ -1796,7 +1796,7 @@ class OktaPlugin(ConnectorPlugin):
             if html_path:
                 console.print(
                     "[red]--html only applies to --team.[/red]\n"
-                    f"Did you mean: [bold]lookup-cli okta {identifier} --team --html {html_path}[/bold]?"
+                    f"Did you mean: [bold]add-it-all okta {identifier} --team --html {html_path}[/bold]?"
                 )
                 raise typer.Exit(code=2)
 
@@ -1806,7 +1806,7 @@ class OktaPlugin(ConnectorPlugin):
             if include_deactivated:
                 console.print(
                     "[red]--include-deactivated only applies to --team.[/red]\n"
-                    f"Did you mean: [bold]lookup-cli okta {identifier} --team --include-deactivated[/bold]?"
+                    f"Did you mean: [bold]add-it-all okta {identifier} --team --include-deactivated[/bold]?"
                 )
                 raise typer.Exit(code=2)
 
@@ -1816,7 +1816,7 @@ class OktaPlugin(ConnectorPlugin):
                 # had asked for something.
                 console.print(
                     "[red]--all only applies to --find.[/red]\n"
-                    f"Did you mean: [bold]lookup-cli okta --find {identifier} --all[/bold]?"
+                    f"Did you mean: [bold]add-it-all okta --find {identifier} --all[/bold]?"
                 )
                 raise typer.Exit(code=2)
 
@@ -1855,7 +1855,7 @@ class OktaPlugin(ConnectorPlugin):
                 # knowing the username is exactly the situation in which you
                 # would not know the flag either.
                 console.print(
-                    f"[dim]Try:[/dim] [bold]lookup-cli okta --find {identifier}[/bold]"
+                    f"[dim]Try:[/dim] [bold]add-it-all okta --find {identifier}[/bold]"
                     "[dim]   to search by name[/dim]"
                 )
                 return
@@ -1917,7 +1917,7 @@ class OktaPlugin(ConnectorPlugin):
             if not result.data.get("found"):
                 console.print(f"[yellow]No Okta account found for[/yellow] {identifier}")
                 console.print(
-                    f"[dim]Try:[/dim] [bold]lookup-cli okta --find {identifier}[/bold]"
+                    f"[dim]Try:[/dim] [bold]add-it-all okta --find {identifier}[/bold]"
                     "[dim]   to search by name[/dim]"
                 )
                 return
@@ -2074,7 +2074,7 @@ class OktaPlugin(ConnectorPlugin):
             # Make the two-step flow copy-paste rather than retype.
             example = shown[0]["login"] or "<username>"
             console.print(
-                f"[dim]Then:[/dim] [bold]lookup-cli okta {example} -sdau[/bold]"
+                f"[dim]Then:[/dim] [bold]add-it-all okta {example} -sdau[/bold]"
                 "[dim]   (or -s / -d / -a / -u)[/dim]"
             )
 

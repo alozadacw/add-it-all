@@ -2,7 +2,7 @@
 #
 # Keep the default ruleset; add narrow exceptions only for synthetic
 # credentials that the secret-scrubbing tests must contain in order to
-# prove those credentials get redacted. See src/lookup_cli/redaction.py.
+# prove those credentials get redacted. See src/add_it_all/redaction.py.
 #
 # Exceptions are matched by the exact fixture value, not by file path, so a
 # real credential accidentally pasted into a test file is still caught.

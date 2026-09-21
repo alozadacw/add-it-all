@@ -13,10 +13,10 @@ mv plugins/<service>_plugin/echo_plugin plugins/<service>_plugin/<service>_plugi
 
 ## 2. Update `pyproject.toml` in the new package
 
-- `project.name` -> `lookup-cli-<service>-plugin`
+- `project.name` -> `add-it-all-<service>-plugin`
 - entry point -> `<service> = "<service>_plugin.plugin:<Service>Plugin"`
 
-The entry point group name (`lookup_cli.plugins`) must stay identical --
+The entry point group name (`add_it_all.plugins`) must stay identical --
 that's the contract the registry scans for.
 
 Get this wrong and **nothing errors**: core looks in a group your plugin
@@ -88,7 +88,7 @@ propagate (don't swallow everything with a bare `except: pass`).
 **Scrub the error string. Never `str(exc)` directly:**
 
 ```python
-from lookup_cli.redaction import safe_error
+from add_it_all.redaction import safe_error
 
 async def fetch(self, identifier: str) -> ConnectorResult:
     try:
@@ -119,10 +119,10 @@ writes credentials there and nothing exports them, so a plugin reading only
 `os.environ` would see nothing after a developer followed the README.
 
 Declare what you need in `required_credentials`, and core reports an
-unconfigured plugin up front (`lookup-cli plugins list` shows a status
+unconfigured plugin up front (`add-it-all plugins list` shows a status
 column) instead of letting it fail mid-lookup.
 
-`mock_mode` is built in and follows the `LOOKUP_CLI_MOCK_<PLUGIN>`
+`mock_mode` is built in and follows the `ADD_IT_ALL_MOCK_<PLUGIN>`
 convention already in `.env.example` -- no per-plugin flag plumbing, and a
 mock-mode plugin counts as configured even with no credentials.
 
@@ -132,7 +132,7 @@ class JamfPlugin(ConnectorPlugin):
     required_credentials = ("JAMF_BASE_URL", "JAMF_CLIENT_ID", "JAMF_CLIENT_SECRET")
 
     async def _call_backend(self, identifier: str) -> dict:
-        if self.mock_mode:                      # LOOKUP_CLI_MOCK_JAMF=1
+        if self.mock_mode:                      # ADD_IT_ALL_MOCK_JAMF=1
             return self._mock_fixture(identifier)
         base_url = self.config.require("JAMF_BASE_URL")   # raises MissingCredential
         ...
@@ -161,10 +161,10 @@ the original spec's "leave room for optionals" requirement maps to.
 
 Return a `typer.Typer` from your plugin's `cli()` method. Core mounts it
 under the plugin's name automatically, so **never add per-service wiring to
-`src/lookup_cli/cli.py`** -- that is what keeps ground rule 2 true and makes
+`src/add_it_all/cli.py`** -- that is what keeps ground rule 2 true and makes
 the Stage 8 claim (a new connector with zero core edits) hold.
 
-The shape is `lookup-cli <service> <identifier> [flags]`: the identifier is
+The shape is `add-it-all <service> <identifier> [flags]`: the identifier is
 a direct argument on a callback, and flags select sections. No noun
 subcommands -- see "CLI shape" at the top of `docs/STAGES.md` for why.
 
@@ -204,8 +204,8 @@ Two conventions worth copying from `okta_plugin`:
 ```bash
 pip install -e plugins/<service>_plugin
 pytest -m <service>          # add the marker to pyproject.toml first
-lookup-cli plugins list      # confirm it shows up
-lookup-cli <service> <identifier> [flags]
+add-it-all plugins list      # confirm it shows up
+add-it-all <service> <identifier> [flags]
 ```
 
 ## 9. Document service-specific env vars
@@ -217,6 +217,6 @@ pattern for Okta/Jira/Jamf/allwhere.
 
 **Proof this works:** Stage 8 of the project plan requires building a
 throwaway 6th plugin using *only* this guide, with zero edits to
-`src/lookup_cli/`. If that stage requires a core-code change, this
+`src/add_it_all/`. If that stage requires a core-code change, this
 guide (or the plugin contract) has a gap that needs fixing before the
 project is considered "done" architecturally.

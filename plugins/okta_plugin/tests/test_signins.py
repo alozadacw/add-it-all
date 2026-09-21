@@ -22,7 +22,7 @@ import pytest
 import respx
 from okta_plugin.plugin import MAX_LOG_WINDOW, OktaPlugin, parse_since
 
-from lookup_cli.plugins.config import PluginConfig
+from add_it_all.plugins.config import PluginConfig
 
 pytestmark = pytest.mark.okta
 
@@ -271,7 +271,7 @@ async def test_the_api_token_never_appears_in_a_log_error():
 
 
 async def test_mock_mode_returns_signins_without_network():
-    plugin = OktaPlugin(PluginConfig({"LOOKUP_CLI_MOCK_OKTA": "1"}))
+    plugin = OktaPlugin(PluginConfig({"ADD_IT_ALL_MOCK_OKTA": "1"}))
 
     result = await plugin.fetch_device_signins("00uMOCK", since=timedelta(days=90))
 
