@@ -19,6 +19,22 @@ mv plugins/<service>_plugin/echo_plugin plugins/<service>_plugin/<service>_plugi
 The entry point group name (`lookup_cli.plugins`) must stay identical --
 that's the contract the registry scans for.
 
+Get this wrong and **nothing errors**: core looks in a group your plugin
+isn't in, finds nothing, and carries on with one fewer connector. Your
+tests still pass, because they build the app with an explicit dict rather
+than going through discovery. `tests/unit/framework/test_entry_point_registration.py`
+exists to catch exactly that -- it globs `plugins/*/pyproject.toml`, so it
+covers your package from the moment you create it, with no list to update.
+
+Two ways to trip it, both reported by name:
+
+- the group string doesn't match the one `registry.py` searches
+- the group is right but the package wasn't reinstalled. Entry points are
+  recorded at install time, so editing `pyproject.toml` changes nothing
+  until `pip install -e` (or `./scripts/bootstrap.sh`) runs again. The
+  symptom is identical to a typo, which is why the guard distinguishes
+  them.
+
 ## 3. Write tests first
 
 Start the file with that stage's marker, so `pytest -m <service>` covers the
