@@ -178,6 +178,7 @@ add-it-all okta --find <name> --all       # every match, not just the first 15
 add-it-all jira <user>                    # assigned issues;  -r reported;  -tr both
 add-it-all jira <user> --all              # page the cursor for a real count
 add-it-all jira ENG-123                   # one issue by key (auto-detected)
+add-it-all jamf <user>                    # managed computers;  -m mobile;  -dm both
 add-it-all cairo <name>                   # CAIRO/TPRM vendor + its applications
 add-it-all lookup <identifier>            # once Stage 7 lands
 ```
