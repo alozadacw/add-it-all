@@ -168,17 +168,30 @@ TOKEN_REFRESH_MARGIN_SECONDS = 10
 
 
 def build_user_filter(
-    identifier: str, fields: tuple[str, ...] = COMPUTER_FILTER_FIELDS
+    identifier: str,
+    fields: tuple[str, ...] = COMPUTER_FILTER_FIELDS,
+    domain: str | None = None,
 ) -> str:
     """RSQL filter matching `identifier` against every field it could be.
 
     An identifier is a username, a device name or a serial number, and the
-    caller should not have to declare which. All three are OR-ed into a
-    single query rather than tried in sequence: a fallback chain costs a
-    round trip per wrong guess, and its ordering would silently decide which
-    record wins when a string matches two fields.
+    caller should not have to declare which. All are OR-ed into a single
+    query rather than tried in sequence: a fallback chain costs a round trip
+    per wrong guess, and its ordering would silently decide which record
+    wins when a string matches two fields.
 
-    Filtering server-side matters regardless -- this instance holds 3,461
+    **Bare usernames.** Jamf usernames are commonly email addresses -- 197
+    of 197 on the live fleet, all one domain -- so `jamf dluo` matches
+    nothing while `jamf dluo@example.com` works. When `domain` is configured
+    and the identifier carries no `@`, the suffixed form is added as one
+    more clause so both spellings resolve. Only the *username* field gets
+    it: a device name or serial is never an email address, so suffixing
+    those would add clauses that can never match.
+
+    The domain is configuration rather than a constant -- it is org-specific
+    and this plugin ships in a public repo.
+
+    Filtering server-side matters regardless: this instance holds 3,461
     computers, and pulling the fleet to find one laptop would be slow and
     rude.
 
@@ -189,11 +202,21 @@ def build_user_filter(
     cleaned = (identifier or "").strip()
     if not cleaned:
         raise ValueError("jamf needs a username, device name or serial to look up.")
-    # Escape backslashes then quotes so a value cannot terminate the RSQL
-    # string or inject a clause. Applied per-clause: one unescaped quote
-    # would now break all three.
-    safe = cleaned.replace("\\", "\\\\").replace('"', '\\"')
-    return " or ".join(f'{field}=="{safe}"' for field in fields)
+
+    def rsql(value: str) -> str:
+        # Escape backslashes then quotes so a value cannot terminate the RSQL
+        # string or inject a clause. Applied per-clause: one unescaped quote
+        # would break all of them.
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    clauses = [f'{field}=="{rsql(cleaned)}"' for field in fields]
+
+    suffix = (domain or "").strip().lstrip("@")
+    if suffix and "@" not in cleaned:
+        # fields[0] is the username field on both endpoints.
+        clauses.append(f'{fields[0]}=="{rsql(f"{cleaned}@{suffix}")}"')
+
+    return " or ".join(clauses)
 
 
 class JamfPlugin(ConnectorPlugin):
@@ -250,7 +273,9 @@ class JamfPlugin(ConnectorPlugin):
         self, identifier, backend, shaper, fields=COMPUTER_FILTER_FIELDS
     ) -> ConnectorResult:
         try:
-            raw = await backend(build_user_filter(identifier, fields))
+            raw = await backend(
+                build_user_filter(identifier, fields, self.config.get("JAMF_USER_DOMAIN"))
+            )
         except ValueError as exc:
             return ConnectorResult(plugin_name=self.name, identifier=identifier, error=str(exc))
         except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation

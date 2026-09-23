@@ -502,6 +502,16 @@ Notes from the implementation:
     `userAndLocation.username` / `general.name` / `hardware.serialNumber`;
     mobile rejects the dotted path with `INVALID_FIELD` and uses flat
     `username` / `displayName` / `serialNumber`.
+  - **Bare usernames resolve via `JAMF_USER_DOMAIN`.** Jamf usernames are
+    commonly email addresses -- 197 of 197 on the live fleet, all one domain
+    -- so `jamf dluo` matched nothing while `jamf dluo@example.com` worked.
+    With the setting configured and no `@` in the identifier, the suffixed
+    form is added as one more clause so both spellings resolve. Only the
+    *username* field gets it: a device name or serial is never an email
+    address, so suffixing those would add clauses that can never match. The
+    domain is configuration, not a constant -- it is org-specific and this
+    plugin ships in a public repo. Unset is the default and behaves exactly
+    as before.
   - Quote-escaping is applied per clause. With three clauses, escaping only
     the first would leave the other two able to terminate the RSQL string.
 - **Filtering is server-side regardless.** This instance holds 3,461

@@ -187,6 +187,7 @@ add-it-all jamf <user|device|serial>      # computers;  -m mobile;  -w hardware
 add-it-all jamf <id> -o                   # OS detail;  -s software;  -u local users
 add-it-all jamf <id> -dwosu               # every section
 add-it-all jamf CW-XXXX-L                 # device name or serial works too
+add-it-all jamf dluo                      # bare username too, via JAMF_USER_DOMAIN
 add-it-all cairo <name>                   # CAIRO/TPRM vendor + its applications
 add-it-all lookup <identifier>            # once Stage 7 lands
 ```

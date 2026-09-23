@@ -166,6 +166,103 @@ def test_a_blank_identifier_is_rejected(blank):
         build_user_filter(blank)
 
 
+# --- Bare usernames ---------------------------------------------------------
+#
+# Usernames in a Jamf inventory are commonly email addresses -- 197 of 197 on
+# the live fleet, all one domain -- so `jamf dluo` matches nothing while
+# `jamf dluo@example.com` works. JAMF_USER_DOMAIN adds the suffixed form as an
+# extra clause so both spellings resolve.
+#
+# The domain is configuration, never hardcoded: it is org-specific, and this
+# plugin ships to a public repo.
+
+
+def test_a_bare_username_gains_a_suffixed_clause():
+    f = build_user_filter("dluo", domain="example.com")
+
+    assert 'userAndLocation.username=="dluo"' in f
+    assert 'userAndLocation.username=="dluo@example.com"' in f
+
+
+def test_only_the_username_field_is_suffixed():
+    """A device name or serial is never an email address, so suffixing those
+    would add two clauses that can never match."""
+    f = build_user_filter("dluo", domain="example.com")
+
+    assert 'general.name=="dluo@example.com"' not in f
+    assert 'hardware.serialNumber=="dluo@example.com"' not in f
+
+
+def test_an_identifier_that_already_has_an_at_is_not_suffixed():
+    """`dluo@example.com@example.com` would match nothing and look absurd."""
+    f = build_user_filter("dluo@example.com", domain="example.com")
+
+    assert "@example.com@" not in f, "must not double-suffix"
+    # The identifier already contains the domain, so it appears in all three
+    # base clauses -- what matters is that no fourth clause was added.
+    assert f == build_user_filter("dluo@example.com", domain=None)
+    assert f.count(" or ") == 2
+
+
+def test_no_domain_configured_means_no_extra_clause():
+    """Unset is the default, and the plugin must behave exactly as before."""
+    f = build_user_filter("dluo")
+
+    assert f == build_user_filter("dluo", domain=None)
+    assert "@" not in f
+
+
+def test_a_domain_written_with_a_leading_at_is_accepted():
+    """`@example.com` is the natural way to write it in a .env file."""
+    assert build_user_filter("dluo", domain="@example.com") == \
+           build_user_filter("dluo", domain="example.com")
+
+
+def test_a_blank_domain_is_treated_as_unset():
+    assert build_user_filter("dluo", domain="   ") == build_user_filter("dluo")
+
+
+def test_the_suffixed_clause_is_escaped_too():
+    f = build_user_filter('d"luo', domain="example.com")
+
+    assert '\\"' in f
+    # three base clauses plus the suffixed username clause
+    assert f.count('\\"') == 4
+
+
+def test_the_mobile_field_set_also_suffixes_only_its_username_field():
+    f = build_user_filter("dluo", MOBILE_FILTER_FIELDS, domain="example.com")
+
+    assert 'username=="dluo@example.com"' in f
+    assert 'displayName=="dluo@example.com"' not in f
+    assert 'serialNumber=="dluo@example.com"' not in f
+
+
+@respx.mock
+async def test_a_bare_username_reaches_the_api_with_both_spellings():
+    config = PluginConfig({
+        "JAMF_BASE_URL": BASE, "JAMF_CLIENT_ID": "id", "JAMF_CLIENT_SECRET": "s",
+        "JAMF_USER_DOMAIN": "example.com"})
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await JamfPlugin(config).fetch("dluo")
+
+    f = route.calls.last.request.url.params["filter"]
+    assert 'userAndLocation.username=="dluo"' in f
+    assert 'userAndLocation.username=="dluo@example.com"' in f
+
+
+@respx.mock
+async def test_without_the_setting_nothing_changes():
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await _plugin().fetch("dluo")
+
+    assert "@" not in route.calls.last.request.url.params["filter"]
+
+
 @respx.mock
 async def test_a_device_name_finds_the_machine():
     """The reported bug. `CW-EXAMPLE001-L` is a device name, not a user."""
