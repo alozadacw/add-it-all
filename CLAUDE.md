@@ -184,6 +184,8 @@ add-it-all jira <user>                    # assigned issues;  -r reported;  -tr 
 add-it-all jira <user> --all              # page the cursor for a real count
 add-it-all jira ENG-123                   # one issue by key (auto-detected)
 add-it-all jamf <user|device|serial>      # computers;  -m mobile;  -w hardware
+add-it-all jamf <id> -o                   # OS detail;  -s software;  -u local users
+add-it-all jamf <id> -dwosu               # every section
 add-it-all jamf CW-XXXX-L                 # device name or serial works too
 add-it-all cairo <name>                   # CAIRO/TPRM vendor + its applications
 add-it-all lookup <identifier>            # once Stage 7 lands

@@ -533,6 +533,27 @@ Notes from the implementation:
   its own column, so `name` carried no information model does not. Both stay
   in `data` for JSON consumers. Seven columns was tried and shredded model
   over six lines at 80 columns.
+- **`-o`/`--os`, `-s`/`-software`/`--software`, `-u`/`-users`/`--users`**
+  round out the sections. All bundle: `-dwosu` shows everything.
+  - **`-os` is deliberately NOT declared.** With `-o` and `-s` both taken it
+    is already a valid bundle meaning os+software; declaring it as an OS
+    alias would make the same two letters mean different things depending on
+    position. First time the trap documented in the CLI shape note has
+    actually bitten a new flag -- it was caught by checking before choosing
+    the spellings rather than after.
+  - **Applications are grouped by name+version with a copy count.** One live
+    machine reported 192 entries but only 91 distinct pairs, including **102
+    copies of a single app** under numbered directories
+    (`/Applications/SomeVendor-57.localized/...`, `-69`, `-33`). A flat list
+    would be a hundred near-identical rows burying everything else; grouped
+    and sorted most-duplicated-first, it surfaces as the anomaly it is. Both
+    totals are in the title because the gap between them *is* the signal.
+  - **Local accounts filter on `uid >= 500`, not a `_` prefix.** `root` (0),
+    `daemon` (1) and `nobody` (-2) carry no underscore but are not people.
+    Sampled 402 uids across the fleet; all numeric. The hidden count is
+    printed rather than silently dropped -- one machine hid 132 of 134.
+  - APPLICATIONS is the heaviest section (~42KB for one machine) and is
+    requested only when asked for, never folded into the default view.
 - **Six columns, not seven.** Seven squeezed `model` to `Ma…` and wrapped
   the device name over four lines at 80 columns -- the same squeeze that
   took the Okta device table from seven to five, twice. `model` gives way

@@ -67,8 +67,28 @@ def _computer(name="Jane's MacBook Pro", serial="C02XYZ123ABC", managed=True):
             "macAddress": "00:00:5E:00:53:00", "bootRom": "10151.0.0",
             "coreCount": 0, "processorSpeedMhz": 0, "openRamSlots": 0,
         },
-        "operatingSystem": {"name": "macOS", "version": "15.6.0"},
+        "operatingSystem": {"name": "macOS", "version": "15.6.0", "build": "24G84",
+                            "activeDirectoryStatus": "Not Bound",
+                            "fileVault2Status": "BOOT_ENCRYPTED"},
         "userAndLocation": {"username": "jdoe", "email": "jdoe@example.com"},
+        # Present so the section renderers are exercised against data rather
+        # than against "nothing recorded" -- three separate bugs in this
+        # plugin came from fixtures thinner than the real payload.
+        "applications": [
+            {"name": "Safari.app", "version": "26.6.2", "sizeMegabytes": 20,
+             "path": "/Applications/Safari.app"},
+            {"name": "Dup.app", "version": "1.0", "sizeMegabytes": 5,
+             "path": "/Applications/Dup-1.localized/Dup.app"},
+            {"name": "Dup.app", "version": "1.0", "sizeMegabytes": 5,
+             "path": "/Applications/Dup-2.localized/Dup.app"},
+        ],
+        "localUserAccounts": [
+            {"username": "root", "uid": "0", "admin": True},
+            {"username": "_spotlight", "uid": "89"},
+            {"username": "jdoe", "uid": "502", "admin": False, "fileVault2Enabled": True,
+             "homeDirectorySizeMb": 29696, "fullName": "Jane Doe",
+             "userAccountType": "LOCAL"},
+        ],
     }
 
 
@@ -328,6 +348,122 @@ def test_h_is_left_free_for_help():
     result = runner.invoke(_app(MOCK_CONFIG), ["jamf", "jdoe", "-h"])
 
     assert result.exit_code == 2
+
+
+# --- -o/--os, -s/--software, -u/--users --------------------------------------------
+
+
+@pytest.mark.parametrize("flag", ["-o", "--os"])
+@respx.mock
+def test_every_os_spelling_works(flag):
+    _mock()
+
+    result = runner.invoke(_app(), ["jamf", "jdoe", flag])
+
+    assert result.exit_code == 0
+    assert "26.6.2" in _out(result) or "15.6.0" in _out(result)
+
+
+def test_dash_os_is_not_declared_because_it_is_already_a_bundle():
+    """`-os` is `-o` + `-s` = os+software. Declaring it as an OS alias would
+    make the same two letters mean different things depending on position --
+    the trap the CLI shape note documents. So `-os` must resolve to the
+    bundle, not to OS alone."""
+    result = runner.invoke(_app(MOCK_CONFIG), ["jamf", "jdoe", "-os"])
+
+    assert result.exit_code == 0
+    out = _out(result).lower()
+    assert "operating system" in out, "the -o half must run"
+    assert "applications" in out, "the -s half must run too"
+
+
+@pytest.mark.parametrize("flag", ["-s", "-software", "--software"])
+@respx.mock
+def test_every_software_spelling_works(flag):
+    _mock()
+
+    assert runner.invoke(_app(), ["jamf", "jdoe", flag]).exit_code == 0
+
+
+@pytest.mark.parametrize("flag", ["-u", "-users", "--users"])
+@respx.mock
+def test_every_users_spelling_works(flag):
+    _mock()
+
+    assert runner.invoke(_app(), ["jamf", "jdoe", flag]).exit_code == 0
+
+
+@respx.mock
+def test_duplicated_apps_are_shown_as_a_count_not_repeated_rows():
+    """The live case: 102 copies of one app would otherwise be 102 rows."""
+    apps = [{"name": "Dup.app", "version": "1.0", "sizeMegabytes": 5,
+             "path": f"/Applications/Dup-{i}.localized/Dup.app"} for i in range(9)]
+    _mock(computers=[dict(_computer(), applications=apps)])
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-s"]))
+
+    assert out.count("Dup.app") == 1, "must collapse to one row"
+    assert "9" in out, "the copy count must be visible"
+
+
+@respx.mock
+def test_software_states_both_totals():
+    apps = [{"name": "Dup.app", "version": "1.0", "sizeMegabytes": 5,
+             "path": f"/Applications/Dup-{i}"} for i in range(9)]
+    _mock(computers=[dict(_computer(), applications=apps)])
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-s"]))
+
+    assert "9" in out and "1" in out, "raw entries and distinct apps are different facts"
+
+
+@respx.mock
+def test_system_accounts_are_hidden_but_the_count_is_stated():
+    accounts = [{"username": "root", "uid": "0", "admin": True},
+                {"username": "_spotlight", "uid": "89"},
+                {"username": "realperson", "uid": "502", "admin": False,
+                 "fileVault2Enabled": True, "homeDirectorySizeMb": 29696}]
+    _mock(computers=[dict(_computer(), localUserAccounts=accounts)])
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-u"]))
+
+    assert "realperson" in out
+    assert "root" not in out
+    assert "2" in out, "the hidden-account count must be stated, not silently dropped"
+
+
+@respx.mock
+def test_admin_accounts_are_visually_distinguished():
+    accounts = [{"username": "boss", "uid": "501", "admin": True},
+                {"username": "user", "uid": "502", "admin": False}]
+    _mock(computers=[dict(_computer(), localUserAccounts=accounts)])
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-u"]))
+
+    assert "boss" in out and "user" in out
+    assert "admin" in out.lower()
+
+
+@respx.mock
+def test_all_five_sections_bundle():
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-dwosu"]))
+
+    assert "C02XYZ123ABC" in out          # devices
+    assert "MacBookPro18,3" in out        # hardware
+    assert "operating system" in out.lower()
+    assert "applications" in out.lower()
+    assert "local accounts" in out.lower()
+
+
+@respx.mock
+def test_a_section_alone_shows_only_itself():
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-o"]))
+
+    assert "check-in" not in out.lower(), "the device table must not appear"
 
 
 # --- Failures ------------------------------------------------------------------------

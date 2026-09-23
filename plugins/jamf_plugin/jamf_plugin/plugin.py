@@ -93,6 +93,56 @@ _ZERO_MEANS_ABSENT = (
 )
 
 
+#: macOS reserves uids below 500 for system accounts. This is the real test
+#: for "is this a person": `root` (0), `daemon` (1) and `nobody` (-2) carry no
+#: underscore, so filtering on the prefix alone lists all three. Sampled 402
+#: uids across the live fleet; every one was numeric.
+MIN_HUMAN_UID = 500
+
+#: Applications rows printed before the CLI says "N more". Grouping already
+#: collapses duplicates, so this is about screen height rather than noise.
+MAX_APPS_SHOWN = 30
+
+
+def is_human_account(account: dict) -> bool:
+    """True for a real user account rather than a system one."""
+    raw = account.get("uid")
+    try:
+        return int(raw) >= MIN_HUMAN_UID
+    except (TypeError, ValueError):
+        # Never seen live, but a crash here would take out the whole section.
+        return False
+
+
+def group_applications(applications: list[dict]) -> list[dict]:
+    """Collapse identical name+version pairs, counting the copies.
+
+    One live machine reported 192 entries but only 91 distinct name+version
+    pairs -- including 102 copies of a single app under numbered directories
+    (`/Applications/SomeVendor-57.localized/...`, `-69`, `-33`). A flat list
+    would be a hundred near-identical rows burying everything else, so the
+    copies are counted instead. Most-duplicated first, because an app
+    installed 102 times is the finding, not a footnote; ties break by name.
+
+    Different versions stay separate -- two versions installed is a real
+    observation, not duplication.
+    """
+    buckets: dict[tuple, dict] = {}
+    for app in applications:
+        key = (app.get("name"), app.get("version"))
+        bucket = buckets.setdefault(key, {
+            "name": app.get("name"), "version": app.get("version"),
+            "size_megabytes": app.get("sizeMegabytes"),
+            "mac_app_store": bool(app.get("macAppStore")),
+            "update_available": bool(app.get("updateAvailable")),
+            "copies": 0, "paths": [],
+        })
+        bucket["copies"] += 1
+        if len(bucket["paths"]) < 3:      # enough to show where, not a dump
+            bucket["paths"].append(app.get("path"))
+    return sorted(buckets.values(), key=lambda b: (-b["copies"], (b["name"] or "").lower()))
+
+
 def optional_number(value) -> int | None:
     """A count Jamf may simply not have populated.
 
@@ -171,6 +221,24 @@ class JamfPlugin(ConnectorPlugin):
             identifier, self._call_computers_backend, self._to_hardware
         )
 
+    async def fetch_os(self, identifier: str) -> ConnectorResult:
+        """Operating system detail for the matching machines."""
+        return await self._fetch_devices(
+            identifier, self._call_os_backend, self._to_os
+        )
+
+    async def fetch_software(self, identifier: str) -> ConnectorResult:
+        """Installed applications, grouped by name+version."""
+        return await self._fetch_devices(
+            identifier, self._call_software_backend, self._to_software
+        )
+
+    async def fetch_local_users(self, identifier: str) -> ConnectorResult:
+        """Local accounts on the matching machines, system accounts filtered."""
+        return await self._fetch_devices(
+            identifier, self._call_accounts_backend, self._to_local_users
+        )
+
     async def fetch_mobile_devices(self, identifier: str) -> ConnectorResult:
         """Phones and tablets assigned to `identifier`."""
         return await self._fetch_devices(
@@ -238,6 +306,28 @@ class JamfPlugin(ConnectorPlugin):
 
         params = [("filter", user_filter), ("page-size", str(PAGE_SIZE))]
         params += [("section", section) for section in _COMPUTER_SECTIONS]
+        return await self._get_inventory("/api/v1/computers-inventory", params, "computers")
+
+    async def _call_os_backend(self, user_filter: str) -> list[dict]:
+        if self.mock_mode:
+            return self._mock_computers_fixture()
+        return await self._sectioned_query(user_filter, ("GENERAL", "OPERATING_SYSTEM"))
+
+    async def _call_software_backend(self, user_filter: str) -> list[dict]:
+        if self.mock_mode:
+            return self._mock_computers_fixture()
+        # APPLICATIONS is the heaviest section here -- ~42KB for one machine.
+        # Requested only when asked for, never folded into the default view.
+        return await self._sectioned_query(user_filter, ("GENERAL", "APPLICATIONS"))
+
+    async def _call_accounts_backend(self, user_filter: str) -> list[dict]:
+        if self.mock_mode:
+            return self._mock_computers_fixture()
+        return await self._sectioned_query(user_filter, ("GENERAL", "LOCAL_USER_ACCOUNTS"))
+
+    async def _sectioned_query(self, user_filter: str, sections: tuple[str, ...]) -> list[dict]:
+        params = [("filter", user_filter), ("page-size", str(PAGE_SIZE))]
+        params += [("section", section) for section in sections]
         return await self._get_inventory("/api/v1/computers-inventory", params, "computers")
 
     async def _call_mobile_backend(self, user_filter: str) -> list[dict]:
@@ -308,6 +398,24 @@ class JamfPlugin(ConnectorPlugin):
             },
             "operatingSystem": {"name": "macOS", "version": "15.6.0"},
             "userAndLocation": {"username": "jdoe"},
+            "operatingSystem": {"name": "macOS", "version": "15.6.0", "build": "24G84",
+                                "activeDirectoryStatus": "Not Bound",
+                                "fileVault2Status": "BOOT_ENCRYPTED"},
+            # Duplicated on purpose: the live fleet does this, and a fixture
+            # without it would never exercise the grouping.
+            "applications": [
+                {"name": "Mock Duplicated.app", "version": "1.0", "sizeMegabytes": 40,
+                 "path": f"/Applications/Mock-{i}.localized/Mock Duplicated.app"}
+                for i in range(3)
+            ] + [{"name": "Safari.app", "version": "26.6.2", "sizeMegabytes": 20,
+                  "path": "/Applications/Safari.app"}],
+            "localUserAccounts": [
+                {"username": "root", "uid": "0", "admin": True},
+                {"username": "_spotlight", "uid": "89"},
+                {"username": "mockuser", "uid": "502", "admin": False,
+                 "fileVault2Enabled": True, "homeDirectorySizeMb": 29696,
+                 "fullName": "Mock User", "userAccountType": "LOCAL"},
+            ],
         }]
 
     def _mock_mobile_fixture(self) -> list[dict]:
@@ -354,6 +462,56 @@ class JamfPlugin(ConnectorPlugin):
             # wrong one.
             "last_inventory": (general.get("reportDate") or "")[:10] or None,
             "assigned_to": user.get("username"),
+        }
+
+    @staticmethod
+    def _to_os(entry: dict) -> dict:
+        os_info = entry.get("operatingSystem") or {}
+        general = entry.get("general") or {}
+        return {
+            "name": general.get("name"),
+            "os_name": os_info.get("name"),
+            "version": os_info.get("version"),
+            "build": os_info.get("build"),
+            "supplemental_build": os_info.get("supplementalBuildVersion"),
+            "rapid_security_response": os_info.get("rapidSecurityResponse"),
+            "active_directory": os_info.get("activeDirectoryStatus"),
+            # FileVault appears here as well as in DISK_ENCRYPTION; this is
+            # the boot-volume state specifically.
+            "filevault_status": os_info.get("fileVault2Status"),
+        }
+
+    @staticmethod
+    def _to_software(entry: dict) -> dict:
+        applications = entry.get("applications") or []
+        grouped = group_applications(applications)
+        return {
+            "name": (entry.get("general") or {}).get("name"),
+            "applications": grouped,
+            # Two different facts. The gap between them IS the duplication
+            # signal, so neither is derived from the other at render time.
+            "total_entries": len(applications),
+            "distinct_count": len(grouped),
+        }
+
+    @staticmethod
+    def _to_local_users(entry: dict) -> dict:
+        accounts = entry.get("localUserAccounts") or []
+        humans = [a for a in accounts if is_human_account(a)]
+        return {
+            "name": (entry.get("general") or {}).get("name"),
+            "accounts": [{
+                "username": a.get("username"),
+                "full_name": a.get("fullName"),
+                "uid": a.get("uid"),
+                "admin": bool(a.get("admin")),
+                "filevault_enabled": bool(a.get("fileVault2Enabled")),
+                "home_size_mb": a.get("homeDirectorySizeMb"),
+                "account_type": a.get("userAccountType"),
+            } for a in humans],
+            # Said out loud rather than silently dropped: one live machine
+            # had 134 accounts of which 129 were system.
+            "system_accounts_hidden": len(accounts) - len(humans),
         }
 
     @classmethod
@@ -427,14 +585,31 @@ class JamfPlugin(ConnectorPlugin):
                 help="Hardware detail: model, chip, memory, battery. Short form "
                 "is -w (from hardWare); -h is deliberately left free for help.",
             ),
+            os_detail: bool = typer.Option(
+                False, "--os", "-o",
+                help="Operating system detail: version, build, FileVault boot "
+                "state, AD binding. No -os spelling: that is already the "
+                "bundle -o + -s (os + software).",
+            ),
+            software: bool = typer.Option(
+                False, "--software", "-software", "-s",
+                help="Installed applications, grouped by name and version with "
+                "a copy count. The heaviest section -- opt-in only.",
+            ),
+            users: bool = typer.Option(
+                False, "--users", "-users", "-u",
+                help="Local user accounts (uid >= 500). System accounts are "
+                "filtered out and counted rather than listed.",
+            ),
             mobile: bool = typer.Option(
                 False, "--mobile", "-mobile", "-m",
                 help="Mobile devices (phones, tablets) assigned to this user.",
             ),
         ) -> None:
             """Look one person's Jamf-managed hardware up."""
-            show_computers = devices or not (mobile or hardware)
-            sole_section = sum((show_computers, mobile, hardware)) == 1
+            extras = (mobile, hardware, os_detail, software, users)
+            show_computers = devices or not any(extras)
+            sole_section = sum((show_computers, *extras)) == 1
 
             if show_computers:
                 _print_devices(
@@ -451,6 +626,122 @@ class JamfPlugin(ConnectorPlugin):
                     asyncio.run(self.fetch_hardware(identifier)),
                     identifier=identifier, primary=sole_section,
                 )
+            if os_detail:
+                _print_os(asyncio.run(self.fetch_os(identifier)),
+                          identifier=identifier, primary=sole_section)
+            if software:
+                _print_software(asyncio.run(self.fetch_software(identifier)),
+                                identifier=identifier, primary=sole_section)
+            if users:
+                _print_local_users(asyncio.run(self.fetch_local_users(identifier)),
+                                   identifier=identifier, primary=sole_section)
+
+        def _section_guard(result, label: str, identifier: str, primary: bool):
+            """Shared failure/empty handling. Returns the devices, or None if
+            the caller should stop."""
+            if not result.ok:
+                console.print(f"[red]{label} unavailable:[/red] {result.error}")
+                if primary:
+                    raise typer.Exit(code=1)
+                return None
+            found = result.data["devices"]
+            if not found:
+                console.print(f"[yellow]No Jamf record for[/yellow] {identifier}")
+                return None
+            return found
+
+        def _print_os(result, identifier: str, primary: bool) -> None:
+            found = _section_guard(result, "Operating system", identifier, primary)
+            if found is None:
+                return
+            for device in found:
+                table = Table(
+                    title=f"Operating system - {device['name'] or identifier}",
+                    show_header=False,
+                )
+                table.add_column("field", no_wrap=True)
+                table.add_column("value")
+                for label, value in (
+                    ("os", " ".join(p for p in (device["os_name"], device["version"]) if p)),
+                    ("build", device["build"]),
+                    ("supplemental build", device["supplemental_build"]),
+                    ("rapid security response", device["rapid_security_response"]),
+                    ("FileVault (boot volume)", device["filevault_status"]),
+                    ("Active Directory", device["active_directory"]),
+                ):
+                    table.add_row(label, str(value) if value else "-")
+                console.print(table)
+
+        def _print_software(result, identifier: str, primary: bool) -> None:
+            found = _section_guard(result, "Applications", identifier, primary)
+            if found is None:
+                return
+            for device in found:
+                apps = device["applications"]
+                if not apps:
+                    console.print(f"[yellow]No applications recorded for[/yellow] {identifier}")
+                    continue
+                shown = apps[:MAX_APPS_SHOWN]
+                # Both totals in the title: their gap is the duplication
+                # signal, and stating only one would hide it.
+                title = (f"Applications - {device['name'] or identifier} "
+                         f"({device['distinct_count']} distinct, "
+                         f"{device['total_entries']} installed)")
+                table = Table(title=title)
+                table.add_column("application")
+                table.add_column("version", no_wrap=True)
+                table.add_column("copies", no_wrap=True, justify="right")
+                table.add_column("size", no_wrap=True, justify="right")
+                for app in shown:
+                    copies = app["copies"]
+                    # Anything installed more than once is worth a second
+                    # look -- one machine had the same app 102 times.
+                    rendered = f"[yellow]{copies}[/yellow]" if copies > 1 else str(copies)
+                    size = f"{app['size_megabytes']} MB" if app["size_megabytes"] else "-"
+                    table.add_row(app["name"] or "-", app["version"] or "-", rendered, size)
+                console.print(table)
+                if len(apps) > len(shown):
+                    console.print(
+                        f"[yellow]{len(apps) - len(shown)} more not shown[/yellow]"
+                    )
+
+        def _print_local_users(result, identifier: str, primary: bool) -> None:
+            found = _section_guard(result, "Local accounts", identifier, primary)
+            if found is None:
+                return
+            for device in found:
+                accounts = device["accounts"]
+                hidden = device["system_accounts_hidden"]
+                if not accounts:
+                    console.print(
+                        f"[yellow]No local user accounts on[/yellow] "
+                        f"{device['name'] or identifier} "
+                        f"[dim]({hidden} system accounts hidden)[/dim]"
+                    )
+                    continue
+                table = Table(title=f"Local accounts - {device['name'] or identifier}")
+                table.add_column("username", no_wrap=True)
+                table.add_column("full name")
+                table.add_column("uid", no_wrap=True, justify="right")
+                table.add_column("admin", no_wrap=True)
+                table.add_column("FileVault", no_wrap=True)
+                table.add_column("home", no_wrap=True, justify="right")
+                for account in accounts:
+                    home = (f"{account['home_size_mb'] // 1024} GB"
+                            if account["home_size_mb"] and account["home_size_mb"] >= 1024
+                            else (f"{account['home_size_mb']} MB"
+                                  if account["home_size_mb"] else "-"))
+                    table.add_row(
+                        account["username"] or "-",
+                        account["full_name"] or "-",
+                        str(account["uid"] or "-"),
+                        "[yellow]admin[/yellow]" if account["admin"] else "no",
+                        "[green]yes[/green]" if account["filevault_enabled"] else "no",
+                        home,
+                    )
+                console.print(table)
+                # Said out loud: one live machine hid 129 of 134 accounts.
+                console.print(f"[dim]{hidden} system accounts hidden (uid < {MIN_HUMAN_UID})[/dim]")
 
         def _print_hardware(result, identifier: str, primary: bool) -> None:
             if not result.ok:
