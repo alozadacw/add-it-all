@@ -489,9 +489,23 @@ Notes from the implementation:
   - Mobile records expose only an inventory timestamp, so `last_check_in`
     is None for them rather than reusing the inventory date -- which would
     imply a check-in the API never reported.
-- **Filtering is server-side** (RSQL `userAndLocation.username=="..."`). A
-  Jamf inventory runs to thousands of machines; pulling the fleet to show
-  one laptop would be slow and rude to the instance.
+- **An identifier can be a username, a device name or a serial**, and the
+  caller does not have to say which. Reported 2026-09-23:
+  `jamf CW-EXAMPLE001-L` returned nothing because only the username field
+  was searched, though the machine plainly existed under `general.name`.
+  All three are OR-ed into **one** RSQL query rather than tried in
+  sequence -- a fallback chain costs a round trip per wrong guess, and its
+  ordering would silently decide which record wins when a string matches two
+  fields. Verified live: device name, bare serial and username each return
+  exactly one match through the same filter.
+  - The two endpoints name these differently. Computers use
+    `userAndLocation.username` / `general.name` / `hardware.serialNumber`;
+    mobile rejects the dotted path with `INVALID_FIELD` and uses flat
+    `username` / `displayName` / `serialNumber`.
+  - Quote-escaping is applied per clause. With three clauses, escaping only
+    the first would leave the other two able to terminate the RSQL string.
+- **Filtering is server-side regardless.** This instance holds 3,461
+  computers; pulling the fleet to find one laptop would be slow and rude.
 - **Only rendered sections are requested.** A full inventory record carries
   applications, fonts, plugins, local accounts, certificates and printers --
   megabytes per machine -- and everything in `data` reaches the plaintext

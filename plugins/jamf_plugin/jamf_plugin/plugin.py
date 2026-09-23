@@ -61,6 +61,19 @@ DEFAULT_TIMEOUT_SECONDS = 10.0
 #: cache, so only what is rendered is asked for.
 _COMPUTER_SECTIONS = ("GENERAL", "HARDWARE", "OPERATING_SYSTEM", "USER_AND_LOCATION")
 
+#: Fields an identifier is matched against. A person may type a username, a
+#: device name or a serial and should not have to say which -- reported
+#: 2026-09-23, when `jamf CW-EXAMPLE001-L` found nothing because only the
+#: username was searched though the machine existed under `general.name`.
+#: RSQL `or` covers all three in ONE request, so there is no shape-guessing
+#: and no fallback chain whose ordering would decide ambiguous cases.
+COMPUTER_FILTER_FIELDS = ("userAndLocation.username", "general.name", "hardware.serialNumber")
+
+#: The mobile endpoint names the same concepts differently: it rejects
+#: `userAndLocation.username` with INVALID_FIELD and wants flat `username`,
+#: and the device is `displayName` rather than `name`.
+MOBILE_FILTER_FIELDS = ("username", "displayName", "serialNumber")
+
 #: Mobile records are section-nested exactly like computers, and `hardware`
 #: and `userAndLocation` come back null unless requested -- so serial, model
 #: and the assigned user are all silently absent without this.
@@ -76,23 +89,33 @@ PAGE_SIZE = 200
 TOKEN_REFRESH_MARGIN_SECONDS = 10
 
 
-def build_user_filter(identifier: str, field: str = "userAndLocation.username") -> str:
-    """RSQL filter selecting one user's devices.
+def build_user_filter(
+    identifier: str, fields: tuple[str, ...] = COMPUTER_FILTER_FIELDS
+) -> str:
+    """RSQL filter matching `identifier` against every field it could be.
 
-    Filtering server-side matters: this instance holds 3,461 computers, and
-    pulling the fleet to show one person's laptop would be slow and rude.
+    An identifier is a username, a device name or a serial number, and the
+    caller should not have to declare which. All three are OR-ed into a
+    single query rather than tried in sequence: a fallback chain costs a
+    round trip per wrong guess, and its ordering would silently decide which
+    record wins when a string matches two fields.
 
-    `field` differs by endpoint, which is not a guess -- the mobile endpoint
-    rejects `userAndLocation.username` with INVALID_FIELD and accepts only
-    flat `username`, while computers want the dotted path.
+    Filtering server-side matters regardless -- this instance holds 3,461
+    computers, and pulling the fleet to find one laptop would be slow and
+    rude.
+
+    `fields` differs by endpoint. That is not a guess: the mobile endpoint
+    answers INVALID_FIELD for `userAndLocation.username` and enumerates what
+    it will accept.
     """
     cleaned = (identifier or "").strip()
     if not cleaned:
-        raise ValueError("jamf needs a username to look up.")
-    # Escape backslashes then quotes so a name cannot terminate the RSQL
-    # string or inject another clause.
+        raise ValueError("jamf needs a username, device name or serial to look up.")
+    # Escape backslashes then quotes so a value cannot terminate the RSQL
+    # string or inject a clause. Applied per-clause: one unescaped quote
+    # would now break all three.
     safe = cleaned.replace("\\", "\\\\").replace('"', '\\"')
-    return f'{field}=="{safe}"'
+    return " or ".join(f'{field}=="{safe}"' for field in fields)
 
 
 class JamfPlugin(ConnectorPlugin):
@@ -118,14 +141,14 @@ class JamfPlugin(ConnectorPlugin):
         """Phones and tablets assigned to `identifier`."""
         return await self._fetch_devices(
             identifier, self._call_mobile_backend, self._to_mobile_device,
-            filter_field="username",
+            fields=MOBILE_FILTER_FIELDS,
         )
 
     async def _fetch_devices(
-        self, identifier, backend, shaper, filter_field="userAndLocation.username"
+        self, identifier, backend, shaper, fields=COMPUTER_FILTER_FIELDS
     ) -> ConnectorResult:
         try:
-            raw = await backend(build_user_filter(identifier, filter_field))
+            raw = await backend(build_user_filter(identifier, fields))
         except ValueError as exc:
             return ConnectorResult(plugin_name=self.name, identifier=identifier, error=str(exc))
         except Exception as exc:  # noqa: BLE001 - contract: never crash aggregation
