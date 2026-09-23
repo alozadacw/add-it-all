@@ -30,7 +30,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from jamf_plugin.plugin import JamfPlugin, build_user_filter
+from jamf_plugin.plugin import MOBILE_FILTER_FIELDS, JamfPlugin, build_user_filter
 
 from add_it_all.plugins.config import PluginConfig
 
@@ -107,15 +107,53 @@ def test_required_credentials_are_declared():
 
 
 # --- The RSQL filter ----------------------------------------------------------
+#
+# An identifier can be any of three things and the CLI should not care which:
+# a username, a device name, or a serial number. Reported 2026-09-23 --
+# `jamf CW-EXAMPLE001-L` returned nothing because only the username field was
+# searched, though the machine plainly existed under `general.name`.
+#
+# RSQL `or` means one request covers all three, so there is no shape-guessing
+# and no fallback chain. Verified live: a device name, a bare serial and a
+# real username each return exactly one match through the same filter.
 
 
-def test_filter_matches_the_username_field():
-    assert 'userAndLocation.username=="jdoe"' == build_user_filter("jdoe")
+def test_the_filter_searches_username_name_and_serial():
+    f = build_user_filter("jdoe")
+
+    assert 'userAndLocation.username=="jdoe"' in f
+    assert 'general.name=="jdoe"' in f
+    assert 'hardware.serialNumber=="jdoe"' in f
+
+
+def test_the_three_clauses_are_ored_not_anded():
+    """AND would require the string to be all three at once, matching nothing."""
+    f = build_user_filter("jdoe")
+
+    assert " or " in f
+    assert " and " not in f
+
+
+def test_the_mobile_field_set_is_different():
+    """Mobile rejects `userAndLocation.username` with INVALID_FIELD and uses
+    flat `username`; it also names the device `displayName`, not `name`."""
+    f = build_user_filter("jdoe", MOBILE_FILTER_FIELDS)
+
+    assert 'username=="jdoe"' in f
+    assert "userAndLocation" not in f
+    assert 'displayName=="jdoe"' in f
+    assert 'serialNumber=="jdoe"' in f
 
 
 def test_filter_escapes_embedded_quotes():
-    """A quote would otherwise terminate the RSQL string."""
-    assert '\\"' in build_user_filter('jd"oe')
+    """A quote would otherwise terminate the RSQL string -- and now there are
+    three clauses, so an unescaped one breaks all of them."""
+    f = build_user_filter('jd"oe')
+
+    assert '\\"' in f
+    # One escaped quote per clause, three clauses. Escaping only the first
+    # would leave the other two able to terminate the RSQL string.
+    assert f.count('\\"') == len(("userAndLocation.username", "general.name", "hardware.serialNumber"))
 
 
 def test_filter_trims_surrounding_whitespace():
@@ -126,6 +164,151 @@ def test_filter_trims_surrounding_whitespace():
 def test_a_blank_identifier_is_rejected(blank):
     with pytest.raises(ValueError):
         build_user_filter(blank)
+
+
+# --- Bare usernames ---------------------------------------------------------
+#
+# Usernames in a Jamf inventory are commonly email addresses -- 197 of 197 on
+# the live fleet, all one domain -- so `jamf dluo` matches nothing while
+# `jamf dluo@example.com` works. JAMF_USER_DOMAIN adds the suffixed form as an
+# extra clause so both spellings resolve.
+#
+# The domain is configuration, never hardcoded: it is org-specific, and this
+# plugin ships to a public repo.
+
+
+def test_a_bare_username_gains_a_suffixed_clause():
+    f = build_user_filter("dluo", domain="example.com")
+
+    assert 'userAndLocation.username=="dluo"' in f
+    assert 'userAndLocation.username=="dluo@example.com"' in f
+
+
+def test_only_the_username_field_is_suffixed():
+    """A device name or serial is never an email address, so suffixing those
+    would add two clauses that can never match."""
+    f = build_user_filter("dluo", domain="example.com")
+
+    assert 'general.name=="dluo@example.com"' not in f
+    assert 'hardware.serialNumber=="dluo@example.com"' not in f
+
+
+def test_an_identifier_that_already_has_an_at_is_not_suffixed():
+    """`dluo@example.com@example.com` would match nothing and look absurd."""
+    f = build_user_filter("dluo@example.com", domain="example.com")
+
+    assert "@example.com@" not in f, "must not double-suffix"
+    # The identifier already contains the domain, so it appears in all three
+    # base clauses -- what matters is that no fourth clause was added.
+    assert f == build_user_filter("dluo@example.com", domain=None)
+    assert f.count(" or ") == 2
+
+
+def test_no_domain_configured_means_no_extra_clause():
+    """Unset is the default, and the plugin must behave exactly as before."""
+    f = build_user_filter("dluo")
+
+    assert f == build_user_filter("dluo", domain=None)
+    assert "@" not in f
+
+
+def test_a_domain_written_with_a_leading_at_is_accepted():
+    """`@example.com` is the natural way to write it in a .env file."""
+    assert build_user_filter("dluo", domain="@example.com") == \
+           build_user_filter("dluo", domain="example.com")
+
+
+def test_a_blank_domain_is_treated_as_unset():
+    assert build_user_filter("dluo", domain="   ") == build_user_filter("dluo")
+
+
+def test_the_suffixed_clause_is_escaped_too():
+    f = build_user_filter('d"luo', domain="example.com")
+
+    assert '\\"' in f
+    # three base clauses plus the suffixed username clause
+    assert f.count('\\"') == 4
+
+
+def test_the_mobile_field_set_also_suffixes_only_its_username_field():
+    f = build_user_filter("dluo", MOBILE_FILTER_FIELDS, domain="example.com")
+
+    assert 'username=="dluo@example.com"' in f
+    assert 'displayName=="dluo@example.com"' not in f
+    assert 'serialNumber=="dluo@example.com"' not in f
+
+
+@respx.mock
+async def test_a_bare_username_reaches_the_api_with_both_spellings():
+    config = PluginConfig({
+        "JAMF_BASE_URL": BASE, "JAMF_CLIENT_ID": "id", "JAMF_CLIENT_SECRET": "s",
+        "JAMF_USER_DOMAIN": "example.com"})
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await JamfPlugin(config).fetch("dluo")
+
+    f = route.calls.last.request.url.params["filter"]
+    assert 'userAndLocation.username=="dluo"' in f
+    assert 'userAndLocation.username=="dluo@example.com"' in f
+
+
+@respx.mock
+async def test_without_the_setting_nothing_changes():
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await _plugin().fetch("dluo")
+
+    assert "@" not in route.calls.last.request.url.params["filter"]
+
+
+@respx.mock
+async def test_a_device_name_finds_the_machine():
+    """The reported bug. `CW-EXAMPLE001-L` is a device name, not a user."""
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(
+        return_value=httpx.Response(200, json=_page([_computer(name="CW-EXAMPLE001-L")])))
+
+    result = await _plugin().fetch("CW-EXAMPLE001-L")
+
+    assert result.data["count"] == 1
+    assert 'general.name=="CW-EXAMPLE001-L"' in route.calls.last.request.url.params["filter"]
+
+
+@respx.mock
+async def test_a_bare_serial_finds_the_machine():
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(
+        return_value=httpx.Response(200, json=_page([_computer(serial="EXAMPLE001")])))
+
+    result = await _plugin().fetch("EXAMPLE001")
+
+    assert result.data["count"] == 1
+    assert 'hardware.serialNumber=="EXAMPLE001"' in route.calls.last.request.url.params["filter"]
+
+
+@respx.mock
+async def test_a_username_still_finds_their_machines():
+    """The original behaviour must not regress."""
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([_computer()])))
+
+    await _plugin().fetch("jdoe@example.com")
+
+    assert 'userAndLocation.username=="jdoe@example.com"' in route.calls.last.request.url.params["filter"]
+
+
+@respx.mock
+async def test_one_request_covers_all_three_kinds():
+    """No fallback chain: guessing wrong would cost a round trip per guess,
+    and the order of guesses would decide ambiguous cases arbitrarily."""
+    _mock_token()
+    route = respx.get(COMPUTERS_URL).mock(return_value=httpx.Response(200, json=_page([])))
+
+    await _plugin().fetch("CW-EXAMPLE001-L")
+
+    assert route.call_count == 1
 
 
 # --- Auth ---------------------------------------------------------------------
@@ -538,8 +721,8 @@ async def test_mobile_filters_on_the_flat_username_field():
     await _plugin().fetch_mobile_devices("jdoe")
 
     f = route.calls.last.request.url.params["filter"]
-    assert f == 'username=="jdoe"'
-    assert "userAndLocation" not in f
+    assert 'username=="jdoe"' in f
+    assert "userAndLocation" not in f, "mobile rejects the dotted path with INVALID_FIELD"
 
 
 @respx.mock

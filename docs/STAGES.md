@@ -489,9 +489,33 @@ Notes from the implementation:
   - Mobile records expose only an inventory timestamp, so `last_check_in`
     is None for them rather than reusing the inventory date -- which would
     imply a check-in the API never reported.
-- **Filtering is server-side** (RSQL `userAndLocation.username=="..."`). A
-  Jamf inventory runs to thousands of machines; pulling the fleet to show
-  one laptop would be slow and rude to the instance.
+- **An identifier can be a username, a device name or a serial**, and the
+  caller does not have to say which. Reported 2026-09-23:
+  `jamf CW-EXAMPLE001-L` returned nothing because only the username field
+  was searched, though the machine plainly existed under `general.name`.
+  All three are OR-ed into **one** RSQL query rather than tried in
+  sequence -- a fallback chain costs a round trip per wrong guess, and its
+  ordering would silently decide which record wins when a string matches two
+  fields. Verified live: device name, bare serial and username each return
+  exactly one match through the same filter.
+  - The two endpoints name these differently. Computers use
+    `userAndLocation.username` / `general.name` / `hardware.serialNumber`;
+    mobile rejects the dotted path with `INVALID_FIELD` and uses flat
+    `username` / `displayName` / `serialNumber`.
+  - **Bare usernames resolve via `JAMF_USER_DOMAIN`.** Jamf usernames are
+    commonly email addresses -- 197 of 197 on the live fleet, all one domain
+    -- so `jamf dluo` matched nothing while `jamf dluo@example.com` worked.
+    With the setting configured and no `@` in the identifier, the suffixed
+    form is added as one more clause so both spellings resolve. Only the
+    *username* field gets it: a device name or serial is never an email
+    address, so suffixing those would add clauses that can never match. The
+    domain is configuration, not a constant -- it is org-specific and this
+    plugin ships in a public repo. Unset is the default and behaves exactly
+    as before.
+  - Quote-escaping is applied per clause. With three clauses, escaping only
+    the first would leave the other two able to terminate the RSQL string.
+- **Filtering is server-side regardless.** This instance holds 3,461
+  computers; pulling the fleet to find one laptop would be slow and rude.
 - **Only rendered sections are requested.** A full inventory record carries
   applications, fonts, plugins, local accounts, certificates and printers --
   megabytes per machine -- and everything in `data` reaches the plaintext
@@ -500,6 +524,46 @@ Notes from the implementation:
 - **Only the assigned username is kept from `userAndLocation`.** It also
   carries realname, email and position; those are not needed to answer
   "what hardware do they have".
+- **`-w`/`-hardware`/`--hardware` shows hardware detail**, rendered
+  vertically rather than as a wide row -- there are a dozen fields and model
+  alone runs to 40 characters. `-h` is deliberately **not** bound to it:
+  people reflexively type `-h` expecting help, and silently doing something
+  else would be hostile. `-w` is from hard**W**are, the same shape as Okta's
+  `-u` for a**u**thenticators.
+  - **Apple Silicon reports zeros for the Intel-era counters.** A live M3
+    Mac sends `coreCount: 0`, `processorCount: 0`, `processorSpeedMhz: 0`,
+    `busSpeedMhz: 0`, `cacheSizeKilobytes: 0` and `openRamSlots: 0` -- not
+    because it has none, but because Jamf never populates them. `0` is shown
+    as absent, since "0 cores" would be confidently wrong. Intel Macs do
+    populate them and then they are shown.
+  - RAM is rendered in GB; 16384 MB is a number nobody thinks in.
+- **`model` is in the default table and `name` gave way for it** (requested
+  2026-09-23). Measured on the live fleet: model runs 31-40 characters while
+  names are uniformly 15 and shaped `CW-<serial>-L` -- the serial is already
+  its own column, so `name` carried no information model does not. Both stay
+  in `data` for JSON consumers. Seven columns was tried and shredded model
+  over six lines at 80 columns.
+- **`-o`/`--os`, `-s`/`-software`/`--software`, `-u`/`-users`/`--users`**
+  round out the sections. All bundle: `-dwosu` shows everything.
+  - **`-os` is deliberately NOT declared.** With `-o` and `-s` both taken it
+    is already a valid bundle meaning os+software; declaring it as an OS
+    alias would make the same two letters mean different things depending on
+    position. First time the trap documented in the CLI shape note has
+    actually bitten a new flag -- it was caught by checking before choosing
+    the spellings rather than after.
+  - **Applications are grouped by name+version with a copy count.** One live
+    machine reported 192 entries but only 91 distinct pairs, including **102
+    copies of a single app** under numbered directories
+    (`/Applications/SomeVendor-57.localized/...`, `-69`, `-33`). A flat list
+    would be a hundred near-identical rows burying everything else; grouped
+    and sorted most-duplicated-first, it surfaces as the anomaly it is. Both
+    totals are in the title because the gap between them *is* the signal.
+  - **Local accounts filter on `uid >= 500`, not a `_` prefix.** `root` (0),
+    `daemon` (1) and `nobody` (-2) carry no underscore but are not people.
+    Sampled 402 uids across the fleet; all numeric. The hidden count is
+    printed rather than silently dropped -- one machine hid 132 of 134.
+  - APPLICATIONS is the heaviest section (~42KB for one machine) and is
+    requested only when asked for, never folded into the default view.
 - **Six columns, not seven.** Seven squeezed `model` to `Ma…` and wrapped
   the device name over four lines at 80 columns -- the same squeeze that
   took the Okta device table from seven to five, twice. `model` gives way

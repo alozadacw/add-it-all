@@ -57,10 +57,58 @@ PYTHON=python3.11 ./scripts/bootstrap.sh   # pin the interpreter
 If a check fails, fix it rather than working around it — a failure there
 means the scaffold itself is broken, not your machine.
 
-Then fill in real credentials in `.env` (Okta and Jira have credentials
-available today; Jamf and allwhere stay on their `ADD_IT_ALL_MOCK_*=1`
-flags until creds are provisioned) and pick up the next unchecked task in
-[`docs/STAGES.md`](docs/STAGES.md).
+Then supply real credentials — either in `.env` or via Doppler, see below —
+and pick up the next unchecked task in [`docs/STAGES.md`](docs/STAGES.md).
+Okta, Jira, Jamf and CAIRO have credentials today; allwhere stays on its
+`ADD_IT_ALL_MOCK_ALLWHERE=1` flag until creds are provisioned.
+
+## Credentials
+
+Two supported sources. **Environment variables win over `.env`**, which is
+what makes the Doppler wrapper below work.
+
+### `.env` (simplest)
+
+Copy `.env.example` to `.env` and fill it in. It is gitignored, along with
+anything else matching `.env.*` — a `.env.test` holding live tokens once sat
+untracked-but-committable in this public repo, so the rule covers the whole
+family.
+
+### Doppler (no secrets on disk)
+
+```bash
+doppler run --project <project> --config prod -- add-it-all jira dluo
+```
+
+`doppler run` injects the secrets as environment variables into the child
+process, and those take precedence over `.env`. Store them under their
+plain service names — the same ones in `.env.example`:
+
+```
+OKTA_ORG_URL  OKTA_API_TOKEN
+JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN
+JAMF_BASE_URL JAMF_CLIENT_ID JAMF_CLIENT_SECRET
+CAIRO_BASE_URL CAIRO_API_KEY
+```
+
+The `ADD_IT_ALL_*` framework settings (cache path, TTL, `*_MOCK_*` toggles)
+are not secrets and belong in `.env`, not Doppler.
+
+**Two things that cost real debugging time, so they are worth knowing:**
+
+- **Don't keep credentials in both places.** With `.env` and Doppler each
+  holding a partial or stale set, it is genuinely hard to tell which value is
+  in play. A stale Jira token in Doppler silently overrode a working one in
+  `.env` and presented as "No Jira account found".
+- **Jira's `/user/search` returns `200 []` for a bad token**, not `401`. So an
+  expired credential is indistinguishable from a person who does not exist. If
+  a lookup you expect to succeed comes back empty, check the credential before
+  concluding the account is gone:
+
+  ```bash
+  curl -s -o /dev/null -w '%{http_code}\n' \
+    -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/myself"
+  ```
 
 ### Running things by hand
 
