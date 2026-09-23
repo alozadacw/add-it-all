@@ -83,6 +83,34 @@ _MOBILE_SECTIONS = ("GENERAL", "HARDWARE", "USER_AND_LOCATION")
 #: is generous rather than tuned.
 PAGE_SIZE = 200
 
+#: Numeric hardware fields Jamf leaves at 0 on Apple Silicon. They are not
+#: "zero cores" -- they are Intel-era fields it never populates. Verified on a
+#: live M3 Mac 2026-09-23. Rendering them as numbers would be confidently
+#: wrong, so a 0 here is treated as absent.
+_ZERO_MEANS_ABSENT = (
+    "coreCount", "processorCount", "processorSpeedMhz", "busSpeedMhz",
+    "cacheSizeKilobytes", "openRamSlots",
+)
+
+
+def optional_number(value) -> int | None:
+    """A count Jamf may simply not have populated.
+
+    Zero is not a real answer for any of these -- no Mac has zero cores --
+    so it is reported as absent rather than as a number someone might act on.
+    """
+    if value in (None, "", 0):
+        return None
+    return value
+
+
+def format_ram(megabytes) -> str | None:
+    """RAM in GB. 16384 MB is a number nobody thinks in."""
+    if not megabytes:
+        return None
+    return f"{int(megabytes) // 1024} GB"
+
+
 #: Re-exchange this many seconds before a token's stated expiry. Tokens here
 #: live 59 seconds, so the margin is a meaningful fraction of the lifetime
 #: rather than a rounding error.
@@ -135,6 +163,12 @@ class JamfPlugin(ConnectorPlugin):
         """Computers assigned to `identifier`. Never raises for ordinary failures."""
         return await self._fetch_devices(
             identifier, self._call_computers_backend, self._to_computer
+        )
+
+    async def fetch_hardware(self, identifier: str) -> ConnectorResult:
+        """Hardware detail for the machines matching `identifier`."""
+        return await self._fetch_devices(
+            identifier, self._call_computers_backend, self._to_hardware
         )
 
     async def fetch_mobile_devices(self, identifier: str) -> ConnectorResult:
@@ -260,8 +294,18 @@ class JamfPlugin(ConnectorPlugin):
             "general": {"name": "Mock MacBook Pro", "lastContactTime": "2026-09-20T08:15:00.000Z",
                         "reportDate": "2026-09-19T03:00:00.000Z",
                         "remoteManagement": {"managed": True}},
-            "hardware": {"serialNumber": "C02MOCK00001",
-                         "model": "MacBook Pro (16-inch, 2021)"},
+            "hardware": {
+                "serialNumber": "C02MOCK00001", "make": "Apple",
+                "model": "MacBook Pro (16-inch, 2021)", "modelIdentifier": "MacBookPro18,3",
+                "processorType": "Apple M1 Pro", "processorArchitecture": "arm64",
+                "appleSilicon": True, "totalRamMegabytes": 16384,
+                "batteryHealth": "NORMAL", "batteryCapacityPercent": 94,
+                "macAddress": "00:00:5E:00:53:00", "bootRom": "10151.0.0",
+                # The zeros a real Apple Silicon Mac reports -- the fixture
+                # mirrors reality so the helper is actually exercised.
+                "coreCount": 0, "processorCount": 0, "processorSpeedMhz": 0,
+                "openRamSlots": 0,
+            },
             "operatingSystem": {"name": "macOS", "version": "15.6.0"},
             "userAndLocation": {"username": "jdoe"},
         }]
@@ -312,6 +356,30 @@ class JamfPlugin(ConnectorPlugin):
             "assigned_to": user.get("username"),
         }
 
+    @classmethod
+    def _to_hardware(cls, entry: dict) -> dict:
+        hardware = entry.get("hardware") or {}
+        general = entry.get("general") or {}
+        return {
+            "name": general.get("name"),
+            "make": hardware.get("make"),
+            "model": hardware.get("model"),
+            "model_identifier": hardware.get("modelIdentifier"),
+            "serial_number": hardware.get("serialNumber"),
+            "chip": hardware.get("processorType"),
+            "architecture": hardware.get("processorArchitecture"),
+            "apple_silicon": hardware.get("appleSilicon"),
+            "memory": format_ram(hardware.get("totalRamMegabytes")),
+            # See _ZERO_MEANS_ABSENT: 0 here means "not populated", not "none".
+            "core_count": optional_number(hardware.get("coreCount")),
+            "processor_speed_mhz": optional_number(hardware.get("processorSpeedMhz")),
+            "open_ram_slots": optional_number(hardware.get("openRamSlots")),
+            "battery_health": hardware.get("batteryHealth"),
+            "battery_capacity_percent": optional_number(hardware.get("batteryCapacityPercent")),
+            "mac_address": hardware.get("macAddress"),
+            "boot_rom": hardware.get("bootRom"),
+        }
+
     @staticmethod
     def _to_mobile_device(entry: dict) -> dict:
         """Mobile records are section-nested like computers, and use their
@@ -354,14 +422,19 @@ class JamfPlugin(ConnectorPlugin):
                 help="Computers assigned to this user. The default when no other "
                 "flag is given.",
             ),
+            hardware: bool = typer.Option(
+                False, "--hardware", "-hardware", "-w",
+                help="Hardware detail: model, chip, memory, battery. Short form "
+                "is -w (from hardWare); -h is deliberately left free for help.",
+            ),
             mobile: bool = typer.Option(
                 False, "--mobile", "-mobile", "-m",
                 help="Mobile devices (phones, tablets) assigned to this user.",
             ),
         ) -> None:
             """Look one person's Jamf-managed hardware up."""
-            show_computers = devices or not mobile
-            sole_section = sum((show_computers, mobile)) == 1
+            show_computers = devices or not (mobile or hardware)
+            sole_section = sum((show_computers, mobile, hardware)) == 1
 
             if show_computers:
                 _print_devices(
@@ -373,6 +446,58 @@ class JamfPlugin(ConnectorPlugin):
                     asyncio.run(self.fetch_mobile_devices(identifier)),
                     title="Mobile devices", identifier=identifier, primary=sole_section,
                 )
+            if hardware:
+                _print_hardware(
+                    asyncio.run(self.fetch_hardware(identifier)),
+                    identifier=identifier, primary=sole_section,
+                )
+
+        def _print_hardware(result, identifier: str, primary: bool) -> None:
+            if not result.ok:
+                console.print(f"[red]Hardware unavailable:[/red] {result.error}")
+                if primary:
+                    raise typer.Exit(code=1)
+                return
+
+            found = result.data["devices"]
+            if not found:
+                console.print(f"[yellow]No Jamf hardware record for[/yellow] {identifier}")
+                return
+
+            for device in found:
+                # Vertical rather than a wide row: there are a dozen fields
+                # and model alone runs to 40 characters.
+                table = Table(
+                    title=f"Hardware - {device['name'] or device['serial_number'] or identifier}",
+                    show_header=False,
+                )
+                table.add_column("field", no_wrap=True)
+                table.add_column("value")
+                chip = " ".join(
+                    part for part in (device["chip"], f"({device['architecture']})"
+                                      if device["architecture"] else None) if part
+                )
+                rows = [
+                    ("model", device["model"]),
+                    ("model id", device["model_identifier"]),
+                    ("serial", device["serial_number"]),
+                    ("chip", chip or None),
+                    # None here means Jamf did not populate it -- see
+                    # optional_number. On Apple Silicon that is every one of
+                    # the Intel-era counters.
+                    ("cores", device["core_count"]),
+                    ("cpu MHz", device["processor_speed_mhz"]),
+                    ("memory", device["memory"]),
+                    ("free RAM slots", device["open_ram_slots"]),
+                    ("battery health", device["battery_health"]),
+                    ("battery capacity", f"{device['battery_capacity_percent']}%"
+                     if device["battery_capacity_percent"] else None),
+                    ("MAC address", device["mac_address"]),
+                    ("boot ROM", device["boot_rom"]),
+                ]
+                for label, value in rows:
+                    table.add_row(label, str(value) if value is not None else "-")
+                console.print(table)
 
         def _print_devices(result, title: str, identifier: str, primary: bool) -> None:
             if not result.ok:
@@ -388,18 +513,17 @@ class JamfPlugin(ConnectorPlugin):
                 )
                 return
 
-            # Six columns, not seven. Seven squeezed `model` to "Ma…" and
-            # wrapped the device name over four lines at a stock 80-column
-            # terminal -- the same squeeze that took the Okta device table
-            # from seven columns to five, twice. `model` gives way because
-            # it is the least actionable: the serial identifies the machine
-            # uniquely and the OS says what it is. It stays in `data` for
-            # JSON consumers.
+            # `model` was requested back into this view (2026-09-23) and
+            # `name` gives way to make room. Measured on the live fleet:
+            # model runs 31-40 characters while names are uniformly 15 and
+            # shaped `CW-<serial>-L` -- the serial is already its own column,
+            # so `name` was carrying no information model does not. Name
+            # stays in `data` for JSON consumers.
             table = Table(title=f"{title} ({result.data['count']}) - {identifier}")
-            table.add_column("name")
             # Serial is what an operator acts on, so it never wraps -- the
             # same call made for the Okta device table.
             table.add_column("serial", no_wrap=True)
+            table.add_column("model")
             table.add_column("os", no_wrap=True)
             table.add_column("managed", no_wrap=True)
             # Two columns, deliberately, and neither gives way. A machine can
@@ -412,8 +536,8 @@ class JamfPlugin(ConnectorPlugin):
                     "[green]yes[/green]" if device["managed"] else "[red]unmanaged[/red]"
                 )
                 table.add_row(
-                    device["name"] or "-",
                     device["serial_number"] or "-",
+                    device.get("model") or "-",
                     device["os"] or "-",
                     managed,
                     device["last_check_in"] or "-",

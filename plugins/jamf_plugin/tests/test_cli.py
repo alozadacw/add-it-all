@@ -55,7 +55,18 @@ def _computer(name="Jane's MacBook Pro", serial="C02XYZ123ABC", managed=True):
         "general": {"name": name, "lastContactTime": "2026-09-20T08:15:00.000Z",
                     "lastReportDate": "2026-09-19T03:00:00.000Z",
                     "remoteManagement": {"managed": managed}},
-        "hardware": {"serialNumber": serial, "model": "MacBook Pro (16-inch, 2021)"},
+        # Mirrors a live Apple Silicon record, zeros included -- a thin
+        # fixture here is what let the mobile shaper read every field from
+        # the wrong place and still pass.
+        "hardware": {
+            "serialNumber": serial, "make": "Apple",
+            "model": "MacBook Pro (16-inch, 2021)", "modelIdentifier": "MacBookPro18,3",
+            "processorType": "Apple M1 Pro", "processorArchitecture": "arm64",
+            "appleSilicon": True, "totalRamMegabytes": 16384,
+            "batteryHealth": "NORMAL", "batteryCapacityPercent": 94,
+            "macAddress": "00:00:5E:00:53:00", "bootRom": "10151.0.0",
+            "coreCount": 0, "processorSpeedMhz": 0, "openRamSlots": 0,
+        },
         "operatingSystem": {"name": "macOS", "version": "15.6.0"},
         "userAndLocation": {"username": "jdoe", "email": "jdoe@example.com"},
     }
@@ -216,6 +227,107 @@ def test_contact_details_from_the_inventory_are_not_printed():
     out = _out(runner.invoke(_app(), ["jamf", "jdoe"]))
 
     assert "jdoe@example.com" not in out
+
+
+# --- model in the default view --------------------------------------------------
+
+
+@respx.mock
+def test_the_default_table_shows_the_hardware_model():
+    """Requested 2026-09-23. It had been dropped to fit 80 columns."""
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe"]))
+
+    assert "MacBook Pro (16-inch, 2021)" in out
+
+
+@respx.mock
+def test_the_redundant_name_column_gives_way_to_model():
+    """Device names here are `CW-<serial>-L` -- the serial is already its own
+    column, so `name` was 15 characters carrying no new information. Model is
+    31-40 characters and could not otherwise fit."""
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe"]))
+
+    assert "C02XYZ123ABC" in out, "serial must stay"
+    assert "model" in out.lower()
+
+
+@respx.mock
+def test_the_default_table_still_fits_at_80_columns():
+    narrow = CliRunner(env={"COLUMNS": "80", "NO_COLOR": "1", "TERM": "dumb"})
+    _mock()
+
+    out = _ANSI.sub("", narrow.invoke(_app(), ["jamf", "jdoe"]).stdout)
+
+    assert "C02XYZ123ABC" in out
+    assert "\u2026" not in out, "a column was truncated mid-word"
+
+
+# --- -w / --hardware ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("flag", ["-w", "-hardware", "--hardware"])
+@respx.mock
+def test_every_hardware_spelling_works(flag):
+    _mock()
+
+    result = runner.invoke(_app(), ["jamf", "jdoe", flag])
+
+    assert result.exit_code == 0
+    assert "MacBookPro18,3" in _out(result)
+
+
+@respx.mock
+def test_hardware_shows_chip_memory_and_battery():
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-w"]))
+
+    assert "Apple M1 Pro" in out
+    assert "16 GB" in out
+    assert "NORMAL" in out
+
+
+@respx.mock
+def test_hardware_does_not_print_zero_cores_on_apple_silicon():
+    """Jamf sends coreCount 0 for M-series. Printing "0" would be wrong."""
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-w"]))
+
+    assert "cores" in out.lower()
+    import re as _re
+    assert not _re.search(r"cores\s*\u2502\s*0\b", out), "0 cores must render as absent"
+
+
+@respx.mock
+def test_hardware_bundles_with_the_other_sections():
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-dw"]))
+
+    assert "C02XYZ123ABC" in out
+    assert "MacBookPro18,3" in out
+
+
+@respx.mock
+def test_hardware_alone_does_not_show_the_device_table():
+    _mock()
+
+    out = _out(runner.invoke(_app(), ["jamf", "jdoe", "-w"]))
+
+    assert "check-in" not in out.lower()
+
+
+def test_h_is_left_free_for_help():
+    """`-h` is not bound to hardware. People reflexively type it expecting
+    help, and silently doing something else would be hostile."""
+    result = runner.invoke(_app(MOCK_CONFIG), ["jamf", "jdoe", "-h"])
+
+    assert result.exit_code == 2
 
 
 # --- Failures ------------------------------------------------------------------------

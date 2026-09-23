@@ -72,6 +72,11 @@ block takes literal strings with no variable interpolation, so a committed
 `PATH` would have to hardcode one machine's absolute paths and freeze them.
 The explicit-path convention is the fix.
 
+Credentials come from `.env` **or** Doppler (`doppler run -- add-it-all ...`);
+environment variables win over `.env`. Don't split them across both — a stale
+token in one silently overriding a good one in the other is hard to diagnose.
+See the Credentials section of `README.md`.
+
 `.claude/settings.json` (committed) pre-approves the read-only and
 `.venv/bin/*` commands so sessions don't stall on permission prompts, and
 denies reading `.env` — it holds real Okta/Jira tokens, which should never
@@ -178,7 +183,8 @@ add-it-all okta --find <name> --all       # every match, not just the first 15
 add-it-all jira <user>                    # assigned issues;  -r reported;  -tr both
 add-it-all jira <user> --all              # page the cursor for a real count
 add-it-all jira ENG-123                   # one issue by key (auto-detected)
-add-it-all jamf <user>                    # managed computers;  -m mobile;  -dm both
+add-it-all jamf <user|device|serial>      # computers;  -m mobile;  -w hardware
+add-it-all jamf CW-XXXX-L                 # device name or serial works too
 add-it-all cairo <name>                   # CAIRO/TPRM vendor + its applications
 add-it-all lookup <identifier>            # once Stage 7 lands
 ```

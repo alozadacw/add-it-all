@@ -514,6 +514,25 @@ Notes from the implementation:
 - **Only the assigned username is kept from `userAndLocation`.** It also
   carries realname, email and position; those are not needed to answer
   "what hardware do they have".
+- **`-w`/`-hardware`/`--hardware` shows hardware detail**, rendered
+  vertically rather than as a wide row -- there are a dozen fields and model
+  alone runs to 40 characters. `-h` is deliberately **not** bound to it:
+  people reflexively type `-h` expecting help, and silently doing something
+  else would be hostile. `-w` is from hard**W**are, the same shape as Okta's
+  `-u` for a**u**thenticators.
+  - **Apple Silicon reports zeros for the Intel-era counters.** A live M3
+    Mac sends `coreCount: 0`, `processorCount: 0`, `processorSpeedMhz: 0`,
+    `busSpeedMhz: 0`, `cacheSizeKilobytes: 0` and `openRamSlots: 0` -- not
+    because it has none, but because Jamf never populates them. `0` is shown
+    as absent, since "0 cores" would be confidently wrong. Intel Macs do
+    populate them and then they are shown.
+  - RAM is rendered in GB; 16384 MB is a number nobody thinks in.
+- **`model` is in the default table and `name` gave way for it** (requested
+  2026-09-23). Measured on the live fleet: model runs 31-40 characters while
+  names are uniformly 15 and shaped `CW-<serial>-L` -- the serial is already
+  its own column, so `name` carried no information model does not. Both stay
+  in `data` for JSON consumers. Seven columns was tried and shredded model
+  over six lines at 80 columns.
 - **Six columns, not seven.** Seven squeezed `model` to `Ma…` and wrapped
   the device name over four lines at 80 columns -- the same squeeze that
   took the Okta device table from seven to five, twice. `model` gives way
